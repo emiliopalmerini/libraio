@@ -49,8 +49,8 @@ var BrowserKeys = BrowserKeyMap{
 		key.WithHelp("l", "expand"),
 	),
 	Enter: key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("enter", "open/toggle"),
+		key.WithKeys(" "),
+		key.WithHelp("space", "open/toggle"),
 	),
 	Yank: key.NewBinding(
 		key.WithKeys("y"),
@@ -681,7 +681,7 @@ func (m *BrowserModel) renderHelpLine() string {
 		case domain.IDTypeItem:
 			// Items: open README, yank ID, archive, move
 			bindings = append(bindings,
-				key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "open")),
 				BrowserKeys.Yank,
 				BrowserKeys.Archive,
 				BrowserKeys.Move,

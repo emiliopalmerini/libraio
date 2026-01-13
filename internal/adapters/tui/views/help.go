@@ -71,7 +71,7 @@ func (m *HelpModel) View() string {
 	b.WriteString("\n")
 	b.WriteString(helpLine("j / k / ↑ / ↓", "Move up/down"))
 	b.WriteString(helpLine("h / ←", "Collapse / go to parent"))
-	b.WriteString(helpLine("l / → / Enter", "Expand / enter"))
+	b.WriteString(helpLine("l / → / Space", "Expand / open"))
 	b.WriteString("\n")
 
 	// Actions section

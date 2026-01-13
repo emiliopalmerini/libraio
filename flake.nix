@@ -1,17 +1,23 @@
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  description = "Libraio - TUI for managing Obsidian vaults with Johnny Decimal";
 
-  outputs = { self, nixpkgs }:
-    let
-      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-      forAllSystems = nixpkgs.lib.genAttrs systems;
-    in {
-      devShells = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system};
-        in {
-          default = pkgs.mkShell {
-            packages = [ pkgs.go_1_25 ];
-          };
-        });
-    };
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in
+      {
+        packages = {
+          libraio = pkgs.callPackage ./nix/package.nix {};
+          default = self.packages.${system}.libraio;
+        };
+
+        devShells.default = pkgs.callPackage ./nix/devShell.nix {};
+      }
+    );
 }

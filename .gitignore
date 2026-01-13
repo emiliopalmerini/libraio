@@ -38,3 +38,8 @@ Thumbs.db
 
 # Generated
 /gen/
+
+# LLMs
+.claude
+
+librarian

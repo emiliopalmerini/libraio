@@ -10,9 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"librarian/internal/adapters/tui/styles"
-	"librarian/internal/domain"
-	"librarian/internal/ports"
+	"libraio/internal/adapters/tui/styles"
+	"libraio/internal/domain"
+	"libraio/internal/ports"
 )
 
 // BrowserKeyMap defines key bindings for the browser view
@@ -571,7 +571,7 @@ func (m *BrowserModel) View() string {
 	var b strings.Builder
 
 	// Title
-	b.WriteString(styles.Title.Render("Librarian"))
+	b.WriteString(styles.Title.Render("Libraio"))
 	b.WriteString("\n")
 	b.WriteString(styles.Subtitle.Render("Johnny Decimal Vault Manager"))
 	b.WriteString("\n\n")
@@ -655,26 +655,73 @@ func (m *BrowserModel) renderNode(node *domain.TreeNode, selected bool) string {
 	return fmt.Sprintf("%s%s%s", indent, styles.TreeBranch.Render(prefix), styledText)
 }
 
+// keyHelp extracts the help text from a key.Binding
+func keyHelp(b key.Binding) string {
+	help := b.Help()
+	return fmt.Sprintf("%s %s",
+		styles.HelpKey.Render(help.Key),
+		styles.HelpDesc.Render(help.Desc),
+	)
+}
+
 func (m *BrowserModel) renderHelpLine() string {
-	keys := []struct {
-		key  string
-		desc string
-	}{
-		{"j/k", "navigate"},
-		{"h/l", "collapse/expand"},
-		{"n", "new"},
-		{"a", "archive"},
-		{"/", "search"},
-		{"?", "help"},
-		{"q", "quit"},
+	node := m.selectedNode()
+
+	// Common keys for all contexts
+	var bindings []key.Binding
+
+	// Navigation is always available
+	bindings = append(bindings,
+		key.NewBinding(key.WithKeys("j/k"), key.WithHelp("j/k", "navigate")),
+	)
+
+	// Context-specific bindings based on node type
+	if node != nil {
+		switch node.Type {
+		case domain.IDTypeItem:
+			// Items: open README, yank ID, archive, move
+			bindings = append(bindings,
+				key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+				BrowserKeys.Yank,
+				BrowserKeys.Archive,
+				BrowserKeys.Move,
+			)
+		case domain.IDTypeCategory:
+			// Categories: expand/collapse, new item, archive
+			bindings = append(bindings,
+				key.NewBinding(key.WithKeys("h/l"), key.WithHelp("h/l", "collapse/expand")),
+				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item")),
+				BrowserKeys.Archive,
+			)
+		case domain.IDTypeArea:
+			// Areas: expand/collapse, new category
+			bindings = append(bindings,
+				key.NewBinding(key.WithKeys("h/l"), key.WithHelp("h/l", "collapse/expand")),
+				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new category")),
+			)
+		case domain.IDTypeScope:
+			// Scopes: expand/collapse only
+			bindings = append(bindings,
+				key.NewBinding(key.WithKeys("h/l"), key.WithHelp("h/l", "collapse/expand")),
+			)
+		}
+	} else {
+		// Fallback when no node selected
+		bindings = append(bindings,
+			key.NewBinding(key.WithKeys("h/l"), key.WithHelp("h/l", "collapse/expand")),
+		)
 	}
 
+	// Always show search, help, quit
+	bindings = append(bindings,
+		BrowserKeys.Search,
+		BrowserKeys.Help,
+		BrowserKeys.Quit,
+	)
+
 	var parts []string
-	for _, k := range keys {
-		parts = append(parts, fmt.Sprintf("%s %s",
-			styles.HelpKey.Render(k.key),
-			styles.HelpDesc.Render(k.desc),
-		))
+	for _, b := range bindings {
+		parts = append(parts, keyHelp(b))
 	}
 
 	return strings.Join(parts, styles.HelpSeparator.String())

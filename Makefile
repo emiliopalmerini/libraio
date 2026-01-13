@@ -16,21 +16,21 @@ vet:
 	go vet ./...
 
 build: fmt vet
-	go build -o librarian ./cmd/librarian
+	go build -o libraio ./cmd/libraio
 
 run: build
-	./librarian
+	./libraio
 
 test:
 	go test -v ./...
 
 clean:
-	rm -f librarian
+	rm -f libraio
 	go clean ./...
 
 install: build
 	mkdir -p ~/.local/bin
-	cp librarian ~/.local/bin/
+	cp libraio ~/.local/bin/
 
 ci: check vet build test
 

@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"librarian/internal/adapters/tui/styles"
+	"libraio/internal/adapters/tui/styles"
 )
 
 // HelpKeyMap defines key bindings for the help view
@@ -60,7 +60,7 @@ func (m *HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *HelpModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(styles.Title.Render("Librarian Help"))
+	b.WriteString(styles.Title.Render("Libraio Help"))
 	b.WriteString("\n\n")
 
 	b.WriteString(styles.Subtitle.Render("Johnny Decimal Vault Manager"))

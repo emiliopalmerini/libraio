@@ -1,6 +1,6 @@
 package ports
 
-import "librarian/internal/domain"
+import "libraio/internal/domain"
 
 // VaultRepository defines the interface for vault storage operations
 type VaultRepository interface {

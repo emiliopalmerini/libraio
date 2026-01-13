@@ -50,7 +50,7 @@ jobs:
         run: go vet ./...
 
       - name: Build
-        run: go build -o librarian ./cmd/librarian
+        run: go build -o libraio ./cmd/libraio
 
       - name: Run tests
         run: go test ./...

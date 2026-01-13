@@ -1,4 +1,4 @@
-module librarian
+module libraio
 
 go 1.25.2
 

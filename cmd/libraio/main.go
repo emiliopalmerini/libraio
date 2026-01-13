@@ -6,9 +6,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"librarian/internal/adapters/editor"
-	"librarian/internal/adapters/filesystem"
-	"librarian/internal/adapters/tui"
+	"libraio/internal/adapters/editor"
+	"libraio/internal/adapters/filesystem"
+	"libraio/internal/adapters/tui"
 )
 
 const vaultPath = "~/Documents/bag_of_holding"

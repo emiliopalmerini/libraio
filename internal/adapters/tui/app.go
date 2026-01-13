@@ -3,9 +3,9 @@ package tui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
-	"librarian/internal/adapters/editor"
-	"librarian/internal/adapters/tui/views"
-	"librarian/internal/ports"
+	"libraio/internal/adapters/editor"
+	"libraio/internal/adapters/tui/views"
+	"libraio/internal/ports"
 )
 
 // ViewState represents the current view

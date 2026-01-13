@@ -8,9 +8,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"librarian/internal/adapters/tui/styles"
-	"librarian/internal/domain"
-	"librarian/internal/ports"
+	"libraio/internal/adapters/tui/styles"
+	"libraio/internal/domain"
+	"libraio/internal/ports"
 )
 
 // CreateKeyMap defines key bindings for the create view

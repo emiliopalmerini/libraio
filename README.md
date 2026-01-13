@@ -1,4 +1,4 @@
-# Librarian
+# Libraio
 
 A TUI for managing Johnny Decimal vaults in Obsidian.
 
@@ -11,7 +11,7 @@ make install
 ## Usage
 
 ```bash
-librarian
+libraio
 ```
 
 ## Keys

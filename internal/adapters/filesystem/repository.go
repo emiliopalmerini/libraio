@@ -408,14 +408,39 @@ func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 			return filepath.SkipDir
 		}
 
-		// Check README files for content matches
-		if !info.IsDir() && info.Name() == "README.md" {
+		// Check directories (scopes, areas, categories)
+		if info.IsDir() {
+			name := info.Name()
+			id := domain.ExtractID(name)
+			idType := domain.ParseIDType(id)
+
+			if idType == domain.IDTypeUnknown || seen[id] {
+				return nil
+			}
+
+			// Match folder name
+			if strings.Contains(strings.ToLower(name), query) {
+				seen[id] = true
+				results = append(results, domain.SearchResult{
+					Type:        idType,
+					ID:          id,
+					Name:        domain.ExtractDescription(name),
+					Path:        path,
+					MatchedText: name,
+				})
+			}
+			return nil
+		}
+
+		// Check README.md files for content matches (items only)
+		if info.Name() == "README.md" {
 			dirPath := filepath.Dir(path)
 			dirName := filepath.Base(dirPath)
 			id := domain.ExtractID(dirName)
 			idType := domain.ParseIDType(id)
 
-			if idType == domain.IDTypeUnknown || seen[id] {
+			// Only search README for items
+			if idType != domain.IDTypeItem || seen[id] {
 				return nil
 			}
 
@@ -435,31 +460,6 @@ func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 					MatchedText: dirName,
 				})
 			}
-			return nil
-		}
-
-		if !info.IsDir() {
-			return nil
-		}
-
-		name := info.Name()
-		id := domain.ExtractID(name)
-		idType := domain.ParseIDType(id)
-
-		if idType == domain.IDTypeUnknown || seen[id] {
-			return nil
-		}
-
-		// Check if folder name matches
-		if strings.Contains(strings.ToLower(name), query) {
-			seen[id] = true
-			results = append(results, domain.SearchResult{
-				Type:        idType,
-				ID:          id,
-				Name:        domain.ExtractDescription(name),
-				Path:        path,
-				MatchedText: name,
-			})
 		}
 
 		return nil

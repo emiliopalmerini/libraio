@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -20,6 +22,7 @@ type BrowserKeyMap struct {
 	Left    key.Binding
 	Right   key.Binding
 	Enter   key.Binding
+	Yank    key.Binding
 	New     key.Binding
 	Archive key.Binding
 	Move    key.Binding
@@ -30,24 +33,28 @@ type BrowserKeyMap struct {
 
 var BrowserKeys = BrowserKeyMap{
 	Up: key.NewBinding(
-		key.WithKeys("k", "up"),
-		key.WithHelp("k/↑", "up"),
+		key.WithKeys("k"),
+		key.WithHelp("k", "up"),
 	),
 	Down: key.NewBinding(
-		key.WithKeys("j", "down"),
-		key.WithHelp("j/↓", "down"),
+		key.WithKeys("j"),
+		key.WithHelp("j", "down"),
 	),
 	Left: key.NewBinding(
-		key.WithKeys("h", "left"),
-		key.WithHelp("h/←", "collapse"),
+		key.WithKeys("h"),
+		key.WithHelp("h", "collapse"),
 	),
 	Right: key.NewBinding(
-		key.WithKeys("l", "right"),
-		key.WithHelp("l/→", "expand"),
+		key.WithKeys("l"),
+		key.WithHelp("l", "expand"),
 	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter"),
-		key.WithHelp("enter", "toggle/select"),
+		key.WithHelp("enter", "open/toggle"),
+	),
+	Yank: key.NewBinding(
+		key.WithKeys("y"),
+		key.WithHelp("y", "copy ID"),
 	),
 	New: key.NewBinding(
 		key.WithKeys("n"),
@@ -85,12 +92,23 @@ type BrowserModel struct {
 	height     int
 	message    string
 	messageErr bool
+
+	// Search mode
+	searchMode    bool
+	searchInput   textinput.Model
+	searchMatches []domain.SearchResult // matched results from repo
+	searchIndex   int                   // current match index
 }
 
 // NewBrowserModel creates a new browser model
 func NewBrowserModel(repo ports.VaultRepository) *BrowserModel {
+	input := textinput.New()
+	input.Placeholder = ""
+	input.Prompt = "/"
+
 	return &BrowserModel{
-		repo: repo,
+		repo:        repo,
+		searchInput: input,
 	}
 }
 
@@ -153,6 +171,11 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		m.message = "" // Clear message on key press
 
+		// Search mode handling
+		if m.searchMode {
+			return m.updateSearchMode(msg)
+		}
+
 		switch {
 		case key.Matches(msg, BrowserKeys.Quit):
 			return m, tea.Quit
@@ -186,19 +209,43 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case key.Matches(msg, BrowserKeys.Right), key.Matches(msg, BrowserKeys.Enter):
+		case key.Matches(msg, BrowserKeys.Right):
 			if node := m.selectedNode(); node != nil {
 				if node.Type == domain.IDTypeItem {
-					// Items don't expand, could open in editor
 					return m, nil
 				}
 				if !node.IsExpanded {
 					node.Expand()
 					return m, m.loadNodeChildren(node)
-				} else if key.Matches(msg, BrowserKeys.Enter) {
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, BrowserKeys.Enter):
+			if node := m.selectedNode(); node != nil {
+				if node.Type == domain.IDTypeItem {
+					// Open README in editor
+					readmePath := node.Path + "/README.md"
+					return m, func() tea.Msg {
+						return OpenEditorMsg{Path: readmePath}
+					}
+				}
+				// Toggle expand/collapse for non-items
+				if !node.IsExpanded {
+					node.Expand()
+					return m, m.loadNodeChildren(node)
+				} else {
 					node.Collapse()
 					m.refreshFlatNodes()
 				}
+			}
+			return m, nil
+
+		case key.Matches(msg, BrowserKeys.Yank):
+			if node := m.selectedNode(); node != nil {
+				clipboard.WriteAll(node.ID)
+				m.message = fmt.Sprintf("Yanked: %s", node.ID)
+				m.messageErr = false
 			}
 			return m, nil
 
@@ -228,9 +275,12 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, BrowserKeys.Search):
-			return m, func() tea.Msg {
-				return SwitchToSearchMsg{}
-			}
+			m.searchMode = true
+			m.searchInput.SetValue("")
+			m.searchInput.Focus()
+			m.searchMatches = nil
+			m.searchIndex = 0
+			return m, textinput.Blink
 
 		case key.Matches(msg, BrowserKeys.Help):
 			return m, func() tea.Msg {
@@ -240,6 +290,233 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *BrowserModel) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.searchMode = false
+		m.searchMatches = nil
+		m.searchInput.SetValue("")
+		return m, nil
+
+	case tea.KeyEnter:
+		// Confirm selection and close search
+		m.searchMode = false
+		query := m.searchInput.Value()
+		m.searchInput.SetValue("")
+		if len(m.searchMatches) > 0 {
+			m.message = fmt.Sprintf("/%s [%d/%d]", query, m.searchIndex+1, len(m.searchMatches))
+			m.messageErr = false
+		}
+		return m, nil
+
+	case tea.KeyCtrlN:
+		// Next match
+		if len(m.searchMatches) > 0 {
+			m.searchIndex = (m.searchIndex + 1) % len(m.searchMatches)
+			m.navigateToResult(m.searchMatches[m.searchIndex])
+		}
+		return m, nil
+
+	case tea.KeyCtrlP:
+		// Previous match
+		if len(m.searchMatches) > 0 {
+			m.searchIndex--
+			if m.searchIndex < 0 {
+				m.searchIndex = len(m.searchMatches) - 1
+			}
+			m.navigateToResult(m.searchMatches[m.searchIndex])
+		}
+		return m, nil
+	}
+
+	// Handle 'y' for yank in search mode
+	if msg.String() == "y" && len(m.searchMatches) > 0 {
+		result := m.searchMatches[m.searchIndex]
+		clipboard.WriteAll(result.ID)
+		m.message = fmt.Sprintf("Yanked: %s", result.ID)
+		m.messageErr = false
+		return m, nil
+	}
+
+	// Update input
+	var cmd tea.Cmd
+	m.searchInput, cmd = m.searchInput.Update(msg)
+
+	// Search using repository (searches filesystem)
+	query := m.searchInput.Value()
+	if len(query) >= 2 {
+		results, err := m.repo.Search(query)
+		if err == nil {
+			m.searchMatches = m.fuzzySort(results, query)
+			if len(m.searchMatches) > 0 {
+				m.searchIndex = 0
+				m.navigateToResult(m.searchMatches[0])
+			}
+		}
+	} else {
+		m.searchMatches = nil
+	}
+
+	return m, cmd
+}
+
+// fuzzyScore calculates a score for how well target matches query
+func fuzzyScore(target, query string) int {
+	target = strings.ToLower(target)
+	query = strings.ToLower(query)
+
+	if len(query) == 0 {
+		return 0
+	}
+
+	// Check for exact substring match first (highest priority)
+	if strings.Contains(target, query) {
+		score := 100
+		// Bonus if it starts with query
+		if strings.HasPrefix(target, query) {
+			score += 50
+		}
+		return score
+	}
+
+	// Fuzzy match: check if chars appear in order
+	score := 0
+	queryIdx := 0
+	prevMatchIdx := -1
+
+	for i := 0; i < len(target) && queryIdx < len(query); i++ {
+		if target[i] == query[queryIdx] {
+			if prevMatchIdx == i-1 {
+				score += 10 // consecutive
+			}
+			if i == 0 {
+				score += 15 // start
+			}
+			if i > 0 && (target[i-1] == ' ' || target[i-1] == '.' || target[i-1] == '-') {
+				score += 10 // after separator
+			}
+			score += 1
+			prevMatchIdx = i
+			queryIdx++
+		}
+	}
+
+	if queryIdx == len(query) {
+		return score
+	}
+	return 0
+}
+
+// fuzzySort sorts search results by relevance to query
+func (m *BrowserModel) fuzzySort(results []domain.SearchResult, query string) []domain.SearchResult {
+	type scored struct {
+		result domain.SearchResult
+		score  int
+	}
+
+	var scoredResults []scored
+	for _, r := range results {
+		s1 := fuzzyScore(r.ID, query)
+		s2 := fuzzyScore(r.Name, query)
+		best := s1
+		if s2 > best {
+			best = s2
+		}
+		if best > 0 {
+			scoredResults = append(scoredResults, scored{result: r, score: best})
+		}
+	}
+
+	// Sort by score descending
+	for i := 0; i < len(scoredResults)-1; i++ {
+		for j := i + 1; j < len(scoredResults); j++ {
+			if scoredResults[j].score > scoredResults[i].score {
+				scoredResults[i], scoredResults[j] = scoredResults[j], scoredResults[i]
+			}
+		}
+	}
+
+	sorted := make([]domain.SearchResult, len(scoredResults))
+	for i, s := range scoredResults {
+		sorted[i] = s.result
+	}
+	return sorted
+}
+
+// navigateToResult expands the tree path and navigates to a search result
+func (m *BrowserModel) navigateToResult(result domain.SearchResult) {
+	// Parse the ID to get parent IDs
+	// e.g., "S01.11.15" -> ["S01", "S01.10-19", "S01.11", "S01.11.15"]
+	parts := m.getIDPath(result.ID)
+
+	// Expand each level
+	current := m.root
+	for _, partID := range parts {
+		// Load children if needed
+		if len(current.Children) == 0 {
+			m.repo.LoadChildren(current)
+		}
+		current.Expand()
+
+		// Find the child with this ID
+		for _, child := range current.Children {
+			if child.ID == partID {
+				current = child
+				break
+			}
+		}
+	}
+
+	// Refresh and find cursor position
+	m.refreshFlatNodes()
+	for i, node := range m.flatNodes {
+		if node.ID == result.ID {
+			m.cursor = i
+			break
+		}
+	}
+}
+
+// getIDPath returns the hierarchy of IDs leading to the given ID
+func (m *BrowserModel) getIDPath(id string) []string {
+	var path []string
+	idType := domain.ParseIDType(id)
+
+	switch idType {
+	case domain.IDTypeScope:
+		path = []string{id}
+	case domain.IDTypeArea:
+		// Area: S01.10-19 -> scope is S01
+		if len(id) >= 3 {
+			path = []string{id[:3], id}
+		}
+	case domain.IDTypeCategory:
+		// Category: S01.11 -> scope is S01, area is S01.10-19
+		if len(id) >= 3 {
+			scope := id[:3]
+			// Derive area from category (e.g., S01.11 -> S01.10-19)
+			if len(id) >= 6 {
+				areaNum := id[4:5] // First digit of category
+				area := scope + "." + areaNum + "0-" + areaNum + "9"
+				path = []string{scope, area, id}
+			}
+		}
+	case domain.IDTypeItem:
+		// Item: S01.11.15 -> scope, area, category, item
+		if len(id) >= 3 {
+			scope := id[:3]
+			if len(id) >= 6 {
+				areaNum := id[4:5]
+				area := scope + "." + areaNum + "0-" + areaNum + "9"
+				category := id[:6]
+				path = []string{scope, area, category, id}
+			}
+		}
+	}
+
+	return path
 }
 
 func (m *BrowserModel) loadNodeChildren(node *domain.TreeNode) tea.Cmd {
@@ -316,9 +593,20 @@ func (m *BrowserModel) View() string {
 		}
 	}
 
-	// Help line
-	b.WriteString("\n")
-	b.WriteString(m.renderHelpLine())
+	// Search mode - vim-style command line at bottom
+	if m.searchMode {
+		b.WriteString("\n")
+		b.WriteString(m.searchInput.View())
+		if len(m.searchMatches) > 0 {
+			b.WriteString(styles.MutedText.Render(fmt.Sprintf(" [%d/%d]", m.searchIndex+1, len(m.searchMatches))))
+		} else if len(m.searchInput.Value()) >= 2 {
+			b.WriteString(styles.ErrorMsg.Render(" [no match]"))
+		}
+	} else {
+		// Help line
+		b.WriteString("\n")
+		b.WriteString(m.renderHelpLine())
+	}
 
 	return styles.App.Render(b.String())
 }

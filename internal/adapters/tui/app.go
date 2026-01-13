@@ -14,7 +14,6 @@ type ViewState int
 const (
 	ViewBrowser ViewState = iota
 	ViewCreate
-	ViewSearch
 	ViewHelp
 )
 
@@ -26,7 +25,6 @@ type App struct {
 	state   ViewState
 	browser *views.BrowserModel
 	create  *views.CreateModel
-	search  *views.SearchModel
 	help    *views.HelpModel
 
 	width  int
@@ -41,7 +39,6 @@ func NewApp(repo ports.VaultRepository, ed *editor.Opener) *App {
 		state:   ViewBrowser,
 		browser: views.NewBrowserModel(repo),
 		create:  views.NewCreateModel(repo, ed != nil),
-		search:  views.NewSearchModel(repo),
 		help:    views.NewHelpModel(),
 	}
 }
@@ -59,7 +56,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.browser.SetSize(msg.Width, msg.Height)
 		a.create.SetSize(msg.Width, msg.Height)
-		a.search.SetSize(msg.Width, msg.Height)
 		a.help.SetSize(msg.Width, msg.Height)
 		return a, nil
 
@@ -75,20 +71,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case views.SwitchToSearchMsg:
-		a.state = ViewSearch
-		a.search.Reset()
-		return a, a.search.Init()
+		// Search is now inline in browser, no need to switch
+		return a, nil
 
 	case views.SwitchToHelpMsg:
 		a.state = ViewHelp
 		return a, nil
 
 	case views.SwitchToBrowserMsg:
-		a.state = ViewBrowser
-		return a, a.browser.Reload()
-
-	case views.SearchSelectMsg:
-		// Navigate to selected item in browser
 		a.state = ViewBrowser
 		return a, a.browser.Reload()
 
@@ -114,8 +104,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd = a.browser.Update(msg)
 	case ViewCreate:
 		_, cmd = a.create.Update(msg)
-	case ViewSearch:
-		_, cmd = a.search.Update(msg)
 	case ViewHelp:
 		_, cmd = a.help.Update(msg)
 	}
@@ -147,8 +135,6 @@ func (a *App) View() string {
 	switch a.state {
 	case ViewCreate:
 		return a.create.View()
-	case ViewSearch:
-		return a.search.View()
 	case ViewHelp:
 		return a.help.View()
 	default:

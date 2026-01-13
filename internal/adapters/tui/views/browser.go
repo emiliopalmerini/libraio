@@ -148,7 +148,7 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case successMsg:
 		m.message = msg.message
 		m.messageErr = false
-		return m, nil
+		return m, m.Reload()
 
 	case tea.KeyMsg:
 		m.message = "" // Clear message on key press

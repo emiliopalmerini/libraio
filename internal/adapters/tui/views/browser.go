@@ -19,8 +19,6 @@ import (
 type BrowserKeyMap struct {
 	Up      key.Binding
 	Down    key.Binding
-	Left    key.Binding
-	Right   key.Binding
 	Enter   key.Binding
 	Yank    key.Binding
 	New     key.Binding
@@ -39,14 +37,6 @@ var BrowserKeys = BrowserKeyMap{
 	Down: key.NewBinding(
 		key.WithKeys("j"),
 		key.WithHelp("j", "down"),
-	),
-	Left: key.NewBinding(
-		key.WithKeys("h"),
-		key.WithHelp("h", "collapse"),
-	),
-	Right: key.NewBinding(
-		key.WithKeys("l"),
-		key.WithHelp("l", "expand"),
 	),
 	Enter: key.NewBinding(
 		key.WithKeys(" "),
@@ -189,35 +179,6 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, BrowserKeys.Down):
 			if m.cursor < len(m.flatNodes)-1 {
 				m.cursor++
-			}
-			return m, nil
-
-		case key.Matches(msg, BrowserKeys.Left):
-			if node := m.selectedNode(); node != nil {
-				if node.IsExpanded {
-					node.Collapse()
-					m.refreshFlatNodes()
-				} else if node.Parent != nil && node.Parent.Type != domain.IDTypeUnknown {
-					// Move to parent
-					for i, n := range m.flatNodes {
-						if n == node.Parent {
-							m.cursor = i
-							break
-						}
-					}
-				}
-			}
-			return m, nil
-
-		case key.Matches(msg, BrowserKeys.Right):
-			if node := m.selectedNode(); node != nil {
-				if node.Type == domain.IDTypeItem {
-					return m, nil
-				}
-				if !node.IsExpanded {
-					node.Expand()
-					return m, m.loadNodeChildren(node)
-				}
 			}
 			return m, nil
 
@@ -687,28 +648,28 @@ func (m *BrowserModel) renderHelpLine() string {
 				BrowserKeys.Move,
 			)
 		case domain.IDTypeCategory:
-			// Categories: expand/collapse, new item, archive
+			// Categories: toggle, new item, archive
 			bindings = append(bindings,
-				key.NewBinding(key.WithKeys("h/l"), key.WithHelp("h/l", "collapse/expand")),
+				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item")),
 				BrowserKeys.Archive,
 			)
 		case domain.IDTypeArea:
-			// Areas: expand/collapse, new category
+			// Areas: toggle, new category
 			bindings = append(bindings,
-				key.NewBinding(key.WithKeys("h/l"), key.WithHelp("h/l", "collapse/expand")),
+				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new category")),
 			)
 		case domain.IDTypeScope:
-			// Scopes: expand/collapse only
+			// Scopes: toggle only
 			bindings = append(bindings,
-				key.NewBinding(key.WithKeys("h/l"), key.WithHelp("h/l", "collapse/expand")),
+				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 			)
 		}
 	} else {
 		// Fallback when no node selected
 		bindings = append(bindings,
-			key.NewBinding(key.WithKeys("h/l"), key.WithHelp("h/l", "collapse/expand")),
+			key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 		)
 	}
 

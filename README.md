@@ -19,12 +19,13 @@ libraio
 | Key | Action |
 |-----|--------|
 | `j/k` | Navigate |
-| `h/l` | Collapse/Expand |
-| `enter` | Open README / Toggle |
+| `space` | Toggle / Open |
 | `y` | Copy ID |
 | `n` | New item |
 | `a` | Archive |
+| `m` | Move item |
 | `/` | Search |
+| `?` | Help |
 | `q` | Quit |
 
 ## License

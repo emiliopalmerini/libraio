@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-Librarian is a Go TUI application for managing Obsidian vaults organized with the Johnny Decimal system. It uses Bubble Tea for the terminal interface.
+Libraio is a Go TUI application for managing Obsidian vaults organized with the Johnny Decimal system. It uses Bubble Tea for the terminal interface.
 
 ## Architecture
 
 Hexagonal architecture with DDD:
 
 ```
-cmd/librarian/main.go    # Entry point
+cmd/libraio/main.go      # Entry point
 internal/
   domain/                # Business logic, models, ID parsing
   ports/                 # Interfaces (VaultRepository, EditorOpener)

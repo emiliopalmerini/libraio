@@ -77,8 +77,6 @@ func (m *HelpModel) View() string {
 	b.WriteString(styles.InputLabel.Render("Actions"))
 	b.WriteString("\n")
 	b.WriteString(helpLine("n", "Create new item/category"))
-	b.WriteString(helpLine("a", "Archive selected item"))
-	b.WriteString(helpLine("m", "Move selected item"))
 	b.WriteString(helpLine("/", "Search"))
 	b.WriteString("\n")
 

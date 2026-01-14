@@ -17,16 +17,14 @@ import (
 
 // BrowserKeyMap defines key bindings for the browser view
 type BrowserKeyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Enter   key.Binding
-	Yank    key.Binding
-	New     key.Binding
-	Archive key.Binding
-	Move    key.Binding
-	Search  key.Binding
-	Help    key.Binding
-	Quit    key.Binding
+	Up     key.Binding
+	Down   key.Binding
+	Enter  key.Binding
+	Yank   key.Binding
+	New    key.Binding
+	Search key.Binding
+	Help   key.Binding
+	Quit   key.Binding
 }
 
 var BrowserKeys = BrowserKeyMap{
@@ -49,14 +47,6 @@ var BrowserKeys = BrowserKeyMap{
 	New: key.NewBinding(
 		key.WithKeys("n"),
 		key.WithHelp("n", "new"),
-	),
-	Archive: key.NewBinding(
-		key.WithKeys("a"),
-		key.WithHelp("a", "archive"),
-	),
-	Move: key.NewBinding(
-		key.WithKeys("m"),
-		key.WithHelp("m", "move"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),
@@ -215,22 +205,6 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if node := m.selectedNode(); node != nil {
 				return m, func() tea.Msg {
 					return SwitchToCreateMsg{ParentNode: node}
-				}
-			}
-			return m, nil
-
-		case key.Matches(msg, BrowserKeys.Archive):
-			if node := m.selectedNode(); node != nil {
-				if node.Type == domain.IDTypeItem || node.Type == domain.IDTypeCategory {
-					return m, m.archiveNode(node)
-				}
-			}
-			return m, nil
-
-		case key.Matches(msg, BrowserKeys.Move):
-			if node := m.selectedNode(); node != nil && node.Type == domain.IDTypeItem {
-				return m, func() tea.Msg {
-					return SwitchToMoveMsg{SourceNode: node}
 				}
 			}
 			return m, nil
@@ -489,15 +463,6 @@ func (m *BrowserModel) loadNodeChildren(node *domain.TreeNode) tea.Cmd {
 	}
 }
 
-func (m *BrowserModel) archiveNode(node *domain.TreeNode) tea.Cmd {
-	return func() tea.Msg {
-		if err := m.repo.Archive(node.ID); err != nil {
-			return errMsg{err}
-		}
-		return successMsg{fmt.Sprintf("Archived %s", node.ID)}
-	}
-}
-
 func (m *BrowserModel) selectedNode() *domain.TreeNode {
 	if m.cursor >= 0 && m.cursor < len(m.flatNodes) {
 		return m.flatNodes[m.cursor]
@@ -640,19 +605,16 @@ func (m *BrowserModel) renderHelpLine() string {
 	if node != nil {
 		switch node.Type {
 		case domain.IDTypeItem:
-			// Items: open README, yank ID, archive, move
+			// Items: open README, yank ID
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "open")),
 				BrowserKeys.Yank,
-				BrowserKeys.Archive,
-				BrowserKeys.Move,
 			)
 		case domain.IDTypeCategory:
-			// Categories: toggle, new item, archive
+			// Categories: toggle, new item
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item")),
-				BrowserKeys.Archive,
 			)
 		case domain.IDTypeArea:
 			// Areas: toggle, new category
@@ -705,10 +667,6 @@ func (m *BrowserModel) Reload() tea.Cmd {
 // Messages for view switching
 type SwitchToCreateMsg struct {
 	ParentNode *domain.TreeNode
-}
-
-type SwitchToMoveMsg struct {
-	SourceNode *domain.TreeNode
 }
 
 type SwitchToSearchMsg struct{}

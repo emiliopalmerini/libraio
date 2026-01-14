@@ -65,11 +65,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.create.SetParent(msg.ParentNode)
 		return a, a.create.Init()
 
-	case views.SwitchToMoveMsg:
-		// For now, just show message - move could be another view
-		// TODO: Implement move view
-		return a, nil
-
 	case views.SwitchToSearchMsg:
 		// Search is now inline in browser, no need to switch
 		return a, nil

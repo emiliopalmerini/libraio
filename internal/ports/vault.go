@@ -14,10 +14,6 @@ type VaultRepository interface {
 	CreateCategory(areaID, description string) (*domain.Category, error)
 	CreateItem(categoryID, description string) (*domain.Item, error)
 
-	// Modify operations
-	Archive(id string) error
-	Move(srcID, dstCategoryID string) error
-
 	// Search
 	Search(query string) ([]domain.SearchResult, error)
 

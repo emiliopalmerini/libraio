@@ -88,6 +88,10 @@ type BrowserModel struct {
 	searchInput   textinput.Model
 	searchMatches []domain.SearchResult // matched results from repo
 	searchIndex   int                   // current match index
+
+	// For restoring state after reload
+	restoreCursor int
+	expandedIDs   map[string]bool
 }
 
 // NewBrowserModel creates a new browser model
@@ -142,6 +146,24 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case treeLoadedMsg:
 		m.root = msg.root
 		m.refreshFlatNodes()
+
+		// Restore expansion state and load children for expanded nodes
+		if len(m.expandedIDs) > 0 {
+			m.restoreExpansion(m.root)
+			m.expandedIDs = nil
+			m.refreshFlatNodes()
+		}
+
+		// Restore cursor position (clamped to valid range)
+		if m.restoreCursor >= 0 {
+			if m.restoreCursor < len(m.flatNodes) {
+				m.cursor = m.restoreCursor
+			} else if len(m.flatNodes) > 0 {
+				m.cursor = len(m.flatNodes) - 1
+			}
+			m.restoreCursor = -1
+		}
+
 		return m, nil
 
 	case childrenLoadedMsg:
@@ -493,6 +515,18 @@ func (m *BrowserModel) loadNodeChildren(node *domain.TreeNode) tea.Cmd {
 	}
 }
 
+// restoreExpansion recursively restores expansion state and loads children
+func (m *BrowserModel) restoreExpansion(node *domain.TreeNode) {
+	if m.expandedIDs[node.ID] {
+		node.Expand()
+		m.repo.LoadChildren(node)
+	}
+
+	for _, child := range node.Children {
+		m.restoreExpansion(child)
+	}
+}
+
 func (m *BrowserModel) selectedNode() *domain.TreeNode {
 	if m.cursor >= 0 && m.cursor < len(m.flatNodes) {
 		return m.flatNodes[m.cursor]
@@ -692,8 +726,17 @@ func (m *BrowserModel) SetSize(width, height int) {
 	m.height = height
 }
 
-// Reload reloads the tree from disk
+// Reload reloads the tree from disk while preserving cursor position and expansion state
 func (m *BrowserModel) Reload() tea.Cmd {
+	// Save current cursor position to restore after reload
+	m.restoreCursor = m.cursor
+	// Save expanded nodes
+	m.expandedIDs = make(map[string]bool)
+	for _, node := range m.flatNodes {
+		if node.IsExpanded {
+			m.expandedIDs[node.ID] = true
+		}
+	}
 	m.root = nil
 	m.flatNodes = nil
 	m.cursor = 0

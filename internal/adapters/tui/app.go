@@ -98,7 +98,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Create view messages
 	case views.CreateSuccessMsg:
 		a.state = ViewBrowser
-		return a, nil
+		return a, a.browser.Reload()
 
 	case views.CreateErrMsg:
 		a.create.SetMessage(msg.Err.Error(), true)
@@ -127,6 +127,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Return to browser, then open editor
 		a.state = ViewBrowser
 		return a, a.openEditor(msg.Path)
+
+	case editorFinishedMsg:
+		// Reload tree after editor closes to show new/modified items
+		return a, a.browser.Reload()
 	}
 
 	// Delegate to current view

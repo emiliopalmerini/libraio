@@ -22,6 +22,7 @@ type BrowserKeyMap struct {
 	Enter  key.Binding
 	Yank   key.Binding
 	New    key.Binding
+	Move   key.Binding
 	Search key.Binding
 	Help   key.Binding
 	Quit   key.Binding
@@ -47,6 +48,10 @@ var BrowserKeys = BrowserKeyMap{
 	New: key.NewBinding(
 		key.WithKeys("n"),
 		key.WithHelp("n", "new"),
+	),
+	Move: key.NewBinding(
+		key.WithKeys("m"),
+		key.WithHelp("m", "move"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),
@@ -205,6 +210,17 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if node := m.selectedNode(); node != nil {
 				return m, func() tea.Msg {
 					return SwitchToCreateMsg{ParentNode: node}
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, BrowserKeys.Move):
+			// Return command to switch to move view (only for items and categories)
+			if node := m.selectedNode(); node != nil {
+				if node.Type == domain.IDTypeItem || node.Type == domain.IDTypeCategory {
+					return m, func() tea.Msg {
+						return SwitchToMoveMsg{SourceNode: node}
+					}
 				}
 			}
 			return m, nil
@@ -605,16 +621,18 @@ func (m *BrowserModel) renderHelpLine() string {
 	if node != nil {
 		switch node.Type {
 		case domain.IDTypeItem:
-			// Items: open README, yank ID
+			// Items: open README, yank ID, move
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "open")),
 				BrowserKeys.Yank,
+				BrowserKeys.Move,
 			)
 		case domain.IDTypeCategory:
-			// Categories: toggle, new item
+			// Categories: toggle, new item, move
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item")),
+				BrowserKeys.Move,
 			)
 		case domain.IDTypeArea:
 			// Areas: toggle, new category
@@ -667,6 +685,10 @@ func (m *BrowserModel) Reload() tea.Cmd {
 // Messages for view switching
 type SwitchToCreateMsg struct {
 	ParentNode *domain.TreeNode
+}
+
+type SwitchToMoveMsg struct {
+	SourceNode *domain.TreeNode
 }
 
 type SwitchToSearchMsg struct{}

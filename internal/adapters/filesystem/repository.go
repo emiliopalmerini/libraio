@@ -271,6 +271,193 @@ func (r *Repository) CreateItem(categoryID, description string) (*domain.Item, e
 	}, nil
 }
 
+// MoveItem moves an item to a different category
+func (r *Repository) MoveItem(srcItemID, dstCategoryID string) (*domain.Item, error) {
+	// Validate source is an item
+	if domain.ParseIDType(srcItemID) != domain.IDTypeItem {
+		return nil, fmt.Errorf("source must be an item, got: %s", srcItemID)
+	}
+
+	// Validate destination is a category
+	if domain.ParseIDType(dstCategoryID) != domain.IDTypeCategory {
+		return nil, fmt.Errorf("destination must be a category, got: %s", dstCategoryID)
+	}
+
+	// Check not moving to same category
+	srcCategoryID, _ := domain.ParseCategory(srcItemID)
+	if srcCategoryID == dstCategoryID {
+		return nil, fmt.Errorf("item is already in category %s", dstCategoryID)
+	}
+
+	// Get source path and description
+	srcPath, err := r.GetPath(srcItemID)
+	if err != nil {
+		return nil, fmt.Errorf("source item not found: %w", err)
+	}
+	description := domain.ExtractDescription(filepath.Base(srcPath))
+
+	// Get destination category path
+	dstCategoryPath, err := r.findCategoryPath(dstCategoryID)
+	if err != nil {
+		return nil, fmt.Errorf("destination category not found: %w", err)
+	}
+
+	// Get next available ID in destination
+	existing, err := r.ListItems(dstCategoryID)
+	if err != nil {
+		return nil, err
+	}
+	var existingIDs []string
+	for _, item := range existing {
+		existingIDs = append(existingIDs, item.ID)
+	}
+	newID, err := domain.NextItemID(dstCategoryID, existingIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create new folder name and path
+	newFolderName := domain.FormatFolderName(newID, description)
+	dstPath := filepath.Join(dstCategoryPath, newFolderName)
+
+	// Move the directory
+	if err := os.Rename(srcPath, dstPath); err != nil {
+		return nil, fmt.Errorf("failed to move item: %w", err)
+	}
+
+	// Update README if it exists
+	readmePath := filepath.Join(dstPath, "README.md")
+	if content, err := os.ReadFile(readmePath); err == nil {
+		updated := domain.UpdateReadmeID(string(content), srcItemID, newID, description)
+		if err := os.WriteFile(readmePath, []byte(updated), 0644); err != nil {
+			// Log but don't fail - item was moved successfully
+		}
+	}
+
+	return &domain.Item{
+		ID:         newID,
+		Name:       description,
+		Path:       dstPath,
+		CategoryID: dstCategoryID,
+		ReadmePath: readmePath,
+	}, nil
+}
+
+// MoveCategory moves a category to a different area
+func (r *Repository) MoveCategory(srcCategoryID, dstAreaID string) (*domain.Category, error) {
+	// Validate source is a category
+	if domain.ParseIDType(srcCategoryID) != domain.IDTypeCategory {
+		return nil, fmt.Errorf("source must be a category, got: %s", srcCategoryID)
+	}
+
+	// Validate destination is an area
+	if domain.ParseIDType(dstAreaID) != domain.IDTypeArea {
+		return nil, fmt.Errorf("destination must be an area, got: %s", dstAreaID)
+	}
+
+	// Check not moving to same area
+	srcAreaID, _ := domain.ParseArea(srcCategoryID)
+	if srcAreaID == dstAreaID {
+		return nil, fmt.Errorf("category is already in area %s", dstAreaID)
+	}
+
+	// Get source path and description
+	srcPath, err := r.GetPath(srcCategoryID)
+	if err != nil {
+		return nil, fmt.Errorf("source category not found: %w", err)
+	}
+	description := domain.ExtractDescription(filepath.Base(srcPath))
+
+	// Get destination area path
+	dstAreaPath, err := r.findAreaPath(dstAreaID)
+	if err != nil {
+		return nil, fmt.Errorf("destination area not found: %w", err)
+	}
+
+	// Get next available ID in destination
+	existing, err := r.ListCategories(dstAreaID)
+	if err != nil {
+		return nil, err
+	}
+	var existingIDs []string
+	for _, cat := range existing {
+		existingIDs = append(existingIDs, cat.ID)
+	}
+	newID, err := domain.NextCategoryID(dstAreaID, existingIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create new folder name and path
+	newFolderName := domain.FormatFolderName(newID, description)
+	dstPath := filepath.Join(dstAreaPath, newFolderName)
+
+	// Move the directory
+	if err := os.Rename(srcPath, dstPath); err != nil {
+		return nil, fmt.Errorf("failed to move category: %w", err)
+	}
+
+	// Update all item IDs within the category
+	r.updateItemIDsInCategory(dstPath, srcCategoryID, newID)
+
+	return &domain.Category{
+		ID:     newID,
+		Name:   description,
+		Path:   dstPath,
+		AreaID: dstAreaID,
+	}, nil
+}
+
+// updateItemIDsInCategory updates all item IDs when a category is moved
+func (r *Repository) updateItemIDsInCategory(categoryPath, _, newCategoryID string) {
+	entries, err := os.ReadDir(categoryPath)
+	if err != nil {
+		return
+	}
+
+	itemRegex := regexp.MustCompile(`^(S0[0-9]\.[0-9][0-9]\.[0-9][0-9]) (.+)$`)
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		matches := itemRegex.FindStringSubmatch(entry.Name())
+		if matches == nil {
+			continue
+		}
+
+		oldItemID := matches[1]
+		description := matches[2]
+
+		// Extract item number (last two digits)
+		parts := strings.Split(oldItemID, ".")
+		if len(parts) < 3 {
+			continue
+		}
+		itemNum := parts[2]
+
+		// Create new item ID
+		newItemID := fmt.Sprintf("%s.%s", newCategoryID, itemNum)
+
+		// Rename folder
+		oldPath := filepath.Join(categoryPath, entry.Name())
+		newFolderName := domain.FormatFolderName(newItemID, description)
+		newPath := filepath.Join(categoryPath, newFolderName)
+
+		if err := os.Rename(oldPath, newPath); err != nil {
+			continue
+		}
+
+		// Update README
+		readmePath := filepath.Join(newPath, "README.md")
+		if content, err := os.ReadFile(readmePath); err == nil {
+			updated := domain.UpdateReadmeID(string(content), oldItemID, newItemID, description)
+			os.WriteFile(readmePath, []byte(updated), 0644)
+		}
+	}
+}
+
 // Search searches for items matching the query in folder names and README content
 func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 	query = strings.ToLower(query)

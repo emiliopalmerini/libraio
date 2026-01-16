@@ -14,6 +14,7 @@ type ViewState int
 const (
 	ViewBrowser ViewState = iota
 	ViewCreate
+	ViewMove
 	ViewHelp
 )
 
@@ -25,6 +26,7 @@ type App struct {
 	state   ViewState
 	browser *views.BrowserModel
 	create  *views.CreateModel
+	move    *views.MoveModel
 	help    *views.HelpModel
 
 	width  int
@@ -39,6 +41,7 @@ func NewApp(repo ports.VaultRepository, ed *editor.Opener) *App {
 		state:   ViewBrowser,
 		browser: views.NewBrowserModel(repo),
 		create:  views.NewCreateModel(repo, ed != nil),
+		move:    views.NewMoveModel(repo),
 		help:    views.NewHelpModel(),
 	}
 }
@@ -56,6 +59,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.browser.SetSize(msg.Width, msg.Height)
 		a.create.SetSize(msg.Width, msg.Height)
+		a.move.SetSize(msg.Width, msg.Height)
 		a.help.SetSize(msg.Width, msg.Height)
 		return a, nil
 
@@ -64,6 +68,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = ViewCreate
 		a.create.SetParent(msg.ParentNode)
 		return a, a.create.Init()
+
+	case views.SwitchToMoveMsg:
+		a.state = ViewMove
+		a.move.SetSource(msg.SourceNode)
+		return a, a.move.Init()
 
 	case views.SwitchToSearchMsg:
 		// Search is now inline in browser, no need to switch
@@ -86,6 +95,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.create.SetMessage(msg.Err.Error(), true)
 		return a, nil
 
+	// Move view messages
+	case views.MoveSuccessMsg:
+		a.state = ViewBrowser
+		return a, a.browser.Reload()
+
+	case views.MoveErrMsg:
+		a.move.SetMessage(msg.Err.Error(), true)
+		return a, nil
+
 	case views.OpenEditorMsg:
 		// Return to browser, then open editor
 		a.state = ViewBrowser
@@ -99,6 +117,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd = a.browser.Update(msg)
 	case ViewCreate:
 		_, cmd = a.create.Update(msg)
+	case ViewMove:
+		_, cmd = a.move.Update(msg)
 	case ViewHelp:
 		_, cmd = a.help.Update(msg)
 	}
@@ -130,6 +150,8 @@ func (a *App) View() string {
 	switch a.state {
 	case ViewCreate:
 		return a.create.View()
+	case ViewMove:
+		return a.move.View()
 	case ViewHelp:
 		return a.help.View()
 	default:

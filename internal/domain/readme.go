@@ -44,6 +44,30 @@ func formatDescriptionSentence(description string) string {
 	return desc
 }
 
+// StandardZeroReadmeTemplate generates a README.md content for a standard zero item
+func StandardZeroReadmeTemplate(id, name, purpose string) string {
+	now := time.Now()
+	dateStr := now.Format("2006/01/02")
+
+	fullTitle := fmt.Sprintf("%s %s", id, name)
+
+	return fmt.Sprintf(`---
+aliases:
+  - %s
+created: %s
+location: Obsidian
+tags:
+  - jdex
+  - index
+  - standard-zero
+---
+
+# %s
+
+%s
+`, fullTitle, dateStr, fullTitle, purpose)
+}
+
 // ParseReadmeFrontmatter extracts frontmatter fields from README content
 type ReadmeFrontmatter struct {
 	Aliases  []string

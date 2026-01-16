@@ -186,7 +186,7 @@ func (r *Repository) ListItems(categoryID string) ([]domain.Item, error) {
 	return items, nil
 }
 
-// CreateCategory creates a new category in an area
+// CreateCategory creates a new category in an area with standard zero items
 func (r *Repository) CreateCategory(areaID, description string) (*domain.Category, error) {
 	areaPath, err := r.findAreaPath(areaID)
 	if err != nil {
@@ -216,12 +216,39 @@ func (r *Repository) CreateCategory(areaID, description string) (*domain.Categor
 		return nil, fmt.Errorf("failed to create category: %w", err)
 	}
 
+	// Create standard zero items with rollback on failure
+	if err := r.createStandardZeros(newID, categoryPath); err != nil {
+		os.RemoveAll(categoryPath)
+		return nil, fmt.Errorf("failed to create standard zeros: %w", err)
+	}
+
 	return &domain.Category{
 		ID:     newID,
 		Name:   description,
 		Path:   categoryPath,
 		AreaID: areaID,
 	}, nil
+}
+
+// createStandardZeros creates all standard zero items in a category
+func (r *Repository) createStandardZeros(categoryID, categoryPath string) error {
+	for _, sz := range domain.StandardZeros {
+		itemID := fmt.Sprintf("%s.%02d", categoryID, sz.Number)
+		folderName := domain.FormatFolderName(itemID, sz.Name)
+		itemPath := filepath.Join(categoryPath, folderName)
+
+		if err := os.MkdirAll(itemPath, 0755); err != nil {
+			return fmt.Errorf("failed to create %s: %w", sz.Name, err)
+		}
+
+		readmePath := filepath.Join(itemPath, "README.md")
+		readmeContent := domain.StandardZeroReadmeTemplate(itemID, sz.Name, sz.Purpose)
+
+		if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
+			return fmt.Errorf("failed to create README for %s: %w", sz.Name, err)
+		}
+	}
+	return nil
 }
 
 // CreateItem creates a new item in a category with a README

@@ -40,6 +40,24 @@ var (
 	itemRegex     = regexp.MustCompile(`^S0[0-9]\.[0-9][0-9]\.[0-9][0-9]$`)
 )
 
+// StandardZero represents a standard zero item definition
+type StandardZero struct {
+	Number  int
+	Name    string
+	Purpose string
+}
+
+// StandardZeros defines the reserved IDs (.00-.09) for management items
+var StandardZeros = []StandardZero{
+	{0, "JDex", "Index and metadata for this category. Use this to track what IDs exist and their purposes."},
+	{1, "Inbox", "Temporary landing zone for items that need to be sorted or processed."},
+	{2, "Tasks", "Active tasks and projects related to this category."},
+	{3, "Templates", "Reusable templates and boilerplate for creating new items."},
+	{4, "Links", "External references, bookmarks, and related resources."},
+	{8, "Someday", "Items to revisit in the future when time permits."},
+	{9, "Archive", "Inactive or completed items preserved for reference."},
+}
+
 // ParseIDType determines the type of a Johnny Decimal ID string
 func ParseIDType(id string) IDType {
 	id = strings.TrimSpace(id)

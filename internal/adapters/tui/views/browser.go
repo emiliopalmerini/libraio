@@ -17,16 +17,17 @@ import (
 
 // BrowserKeyMap defines key bindings for the browser view
 type BrowserKeyMap struct {
-	Up     key.Binding
-	Down   key.Binding
-	Enter  key.Binding
-	Yank   key.Binding
-	New    key.Binding
-	Move   key.Binding
-	Delete key.Binding
-	Search key.Binding
-	Help   key.Binding
-	Quit   key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	Enter    key.Binding
+	Obsidian key.Binding
+	Yank     key.Binding
+	New      key.Binding
+	Move     key.Binding
+	Delete   key.Binding
+	Search   key.Binding
+	Help     key.Binding
+	Quit     key.Binding
 }
 
 var BrowserKeys = BrowserKeyMap{
@@ -41,6 +42,10 @@ var BrowserKeys = BrowserKeyMap{
 	Enter: key.NewBinding(
 		key.WithKeys(" "),
 		key.WithHelp("space", "open/toggle"),
+	),
+	Obsidian: key.NewBinding(
+		key.WithKeys("o"),
+		key.WithHelp("o", "obsidian"),
 	),
 	Yank: key.NewBinding(
 		key.WithKeys("y"),
@@ -223,6 +228,17 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					node.Collapse()
 					m.refreshFlatNodes()
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, BrowserKeys.Obsidian):
+			if node := m.selectedNode(); node != nil {
+				if node.Type == domain.IDTypeItem {
+					readmePath := node.Path + "/README.md"
+					return m, func() tea.Msg {
+						return OpenObsidianMsg{Path: readmePath}
+					}
 				}
 			}
 			return m, nil
@@ -685,9 +701,10 @@ func (m *BrowserModel) renderHelpLine() string {
 	if node != nil {
 		switch node.Type {
 		case domain.IDTypeItem:
-			// Items: open README, yank ID, move, delete
+			// Items: open README, open in obsidian, yank ID, move, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "open")),
+				BrowserKeys.Obsidian,
 				BrowserKeys.Yank,
 				BrowserKeys.Move,
 				BrowserKeys.Delete,
@@ -815,3 +832,8 @@ type SwitchToSearchMsg struct{}
 type SwitchToHelpMsg struct{}
 
 type SwitchToBrowserMsg struct{}
+
+// OpenObsidianMsg requests opening a file in Obsidian
+type OpenObsidianMsg struct {
+	Path string
+}

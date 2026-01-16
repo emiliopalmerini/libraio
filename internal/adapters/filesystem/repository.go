@@ -26,6 +26,11 @@ func NewRepository(vaultPath string) *Repository {
 	return &Repository{vaultPath: vaultPath}
 }
 
+// VaultPath returns the expanded vault path
+func (r *Repository) VaultPath() string {
+	return r.vaultPath
+}
+
 // ListScopes returns all scopes in the vault
 func (r *Repository) ListScopes() ([]domain.Scope, error) {
 	entries, err := os.ReadDir(r.vaultPath)

@@ -8,6 +8,7 @@ import (
 
 	"libraio/internal/adapters/editor"
 	"libraio/internal/adapters/filesystem"
+	"libraio/internal/adapters/obsidian"
 	"libraio/internal/adapters/tui"
 )
 
@@ -17,9 +18,10 @@ func main() {
 	// Initialize adapters
 	repo := filesystem.NewRepository(vaultPath)
 	editorOpener := editor.NewOpener()
+	obsidianOpener := obsidian.NewOpener(repo.VaultPath())
 
 	// Create and run TUI app
-	app := tui.NewApp(repo, editorOpener)
+	app := tui.NewApp(repo, editorOpener, obsidianOpener)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 

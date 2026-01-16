@@ -4,6 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/editor"
+	"libraio/internal/adapters/obsidian"
 	"libraio/internal/adapters/tui/views"
 	"libraio/internal/ports"
 )
@@ -21,8 +22,9 @@ const (
 
 // App is the main TUI application model
 type App struct {
-	repo   ports.VaultRepository
-	editor *editor.Opener
+	repo     ports.VaultRepository
+	editor   *editor.Opener
+	obsidian *obsidian.Opener
 
 	state   ViewState
 	browser *views.BrowserModel
@@ -36,16 +38,17 @@ type App struct {
 }
 
 // NewApp creates a new TUI application
-func NewApp(repo ports.VaultRepository, ed *editor.Opener) *App {
+func NewApp(repo ports.VaultRepository, ed *editor.Opener, obs *obsidian.Opener) *App {
 	return &App{
-		repo:    repo,
-		editor:  ed,
-		state:   ViewBrowser,
-		browser: views.NewBrowserModel(repo),
-		create:  views.NewCreateModel(repo, ed != nil),
-		move:    views.NewMoveModel(repo),
-		delete:  views.NewDeleteModel(repo),
-		help:    views.NewHelpModel(),
+		repo:     repo,
+		editor:   ed,
+		obsidian: obs,
+		state:    ViewBrowser,
+		browser:  views.NewBrowserModel(repo),
+		create:   views.NewCreateModel(repo, ed != nil),
+		move:     views.NewMoveModel(repo),
+		delete:   views.NewDeleteModel(repo),
+		help:     views.NewHelpModel(),
 	}
 }
 
@@ -128,6 +131,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = ViewBrowser
 		return a, a.openEditor(msg.Path)
 
+	case views.OpenObsidianMsg:
+		// Open file in Obsidian
+		a.state = ViewBrowser
+		return a, a.openObsidian(msg.Path)
+
 	case editorFinishedMsg:
 		// Reload tree after editor closes to show new/modified items
 		return a, a.browser.Reload()
@@ -168,6 +176,20 @@ func (a *App) openEditor(path string) tea.Cmd {
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return editorFinishedMsg{err: err}
 	})
+}
+
+func (a *App) openObsidian(path string) tea.Cmd {
+	if a.obsidian == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		err := a.obsidian.OpenFile(path)
+		if err != nil {
+			return editorFinishedMsg{err: err}
+		}
+		return nil
+	}
 }
 
 // View renders the current view

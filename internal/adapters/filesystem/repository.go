@@ -458,6 +458,15 @@ func (r *Repository) updateItemIDsInCategory(categoryPath, _, newCategoryID stri
 	}
 }
 
+// Delete removes an item, category, area, or scope by ID
+func (r *Repository) Delete(id string) error {
+	path, err := r.GetPath(id)
+	if err != nil {
+		return fmt.Errorf("not found: %w", err)
+	}
+	return os.RemoveAll(path)
+}
+
 // Search searches for items matching the query in folder names and README content
 func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 	query = strings.ToLower(query)

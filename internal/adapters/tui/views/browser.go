@@ -23,6 +23,7 @@ type BrowserKeyMap struct {
 	Yank   key.Binding
 	New    key.Binding
 	Move   key.Binding
+	Delete key.Binding
 	Search key.Binding
 	Help   key.Binding
 	Quit   key.Binding
@@ -52,6 +53,10 @@ var BrowserKeys = BrowserKeyMap{
 	Move: key.NewBinding(
 		key.WithKeys("m"),
 		key.WithHelp("m", "move"),
+	),
+	Delete: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", "delete"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),
@@ -221,6 +226,15 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, func() tea.Msg {
 						return SwitchToMoveMsg{SourceNode: node}
 					}
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, BrowserKeys.Delete):
+			// Return command to switch to delete view
+			if node := m.selectedNode(); node != nil {
+				return m, func() tea.Msg {
+					return SwitchToDeleteMsg{TargetNode: node}
 				}
 			}
 			return m, nil
@@ -621,29 +635,33 @@ func (m *BrowserModel) renderHelpLine() string {
 	if node != nil {
 		switch node.Type {
 		case domain.IDTypeItem:
-			// Items: open README, yank ID, move
+			// Items: open README, yank ID, move, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "open")),
 				BrowserKeys.Yank,
 				BrowserKeys.Move,
+				BrowserKeys.Delete,
 			)
 		case domain.IDTypeCategory:
-			// Categories: toggle, new item, move
+			// Categories: toggle, new item, move, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item")),
 				BrowserKeys.Move,
+				BrowserKeys.Delete,
 			)
 		case domain.IDTypeArea:
-			// Areas: toggle, new category
+			// Areas: toggle, new category, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new category")),
+				BrowserKeys.Delete,
 			)
 		case domain.IDTypeScope:
-			// Scopes: toggle only
+			// Scopes: toggle, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
+				BrowserKeys.Delete,
 			)
 		}
 	} else {
@@ -689,6 +707,10 @@ type SwitchToCreateMsg struct {
 
 type SwitchToMoveMsg struct {
 	SourceNode *domain.TreeNode
+}
+
+type SwitchToDeleteMsg struct {
+	TargetNode *domain.TreeNode
 }
 
 type SwitchToSearchMsg struct{}

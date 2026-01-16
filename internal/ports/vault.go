@@ -18,6 +18,9 @@ type VaultRepository interface {
 	MoveItem(srcItemID, dstCategoryID string) (*domain.Item, error)
 	MoveCategory(srcCategoryID, dstAreaID string) (*domain.Category, error)
 
+	// Delete operations
+	Delete(id string) error
+
 	// Search
 	Search(query string) ([]domain.SearchResult, error)
 

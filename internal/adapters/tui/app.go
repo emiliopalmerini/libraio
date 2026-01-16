@@ -15,6 +15,7 @@ const (
 	ViewBrowser ViewState = iota
 	ViewCreate
 	ViewMove
+	ViewDelete
 	ViewHelp
 )
 
@@ -27,6 +28,7 @@ type App struct {
 	browser *views.BrowserModel
 	create  *views.CreateModel
 	move    *views.MoveModel
+	delete  *views.DeleteModel
 	help    *views.HelpModel
 
 	width  int
@@ -42,6 +44,7 @@ func NewApp(repo ports.VaultRepository, ed *editor.Opener) *App {
 		browser: views.NewBrowserModel(repo),
 		create:  views.NewCreateModel(repo, ed != nil),
 		move:    views.NewMoveModel(repo),
+		delete:  views.NewDeleteModel(repo),
 		help:    views.NewHelpModel(),
 	}
 }
@@ -60,6 +63,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.browser.SetSize(msg.Width, msg.Height)
 		a.create.SetSize(msg.Width, msg.Height)
 		a.move.SetSize(msg.Width, msg.Height)
+		a.delete.SetSize(msg.Width, msg.Height)
 		a.help.SetSize(msg.Width, msg.Height)
 		return a, nil
 
@@ -73,6 +77,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = ViewMove
 		a.move.SetSource(msg.SourceNode)
 		return a, a.move.Init()
+
+	case views.SwitchToDeleteMsg:
+		a.state = ViewDelete
+		a.delete.SetTarget(msg.TargetNode)
+		return a, a.delete.Init()
 
 	case views.SwitchToSearchMsg:
 		// Search is now inline in browser, no need to switch
@@ -104,6 +113,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.move.SetMessage(msg.Err.Error(), true)
 		return a, nil
 
+	// Delete view messages
+	case views.DeleteSuccessMsg:
+		a.state = ViewBrowser
+		return a, a.browser.Reload()
+
+	case views.DeleteErrMsg:
+		// Return to browser on error (delete view has no SetMessage)
+		a.state = ViewBrowser
+		return a, nil
+
 	case views.OpenEditorMsg:
 		// Return to browser, then open editor
 		a.state = ViewBrowser
@@ -119,6 +138,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd = a.create.Update(msg)
 	case ViewMove:
 		_, cmd = a.move.Update(msg)
+	case ViewDelete:
+		_, cmd = a.delete.Update(msg)
 	case ViewHelp:
 		_, cmd = a.help.Update(msg)
 	}
@@ -152,6 +173,8 @@ func (a *App) View() string {
 		return a.create.View()
 	case ViewMove:
 		return a.move.View()
+	case ViewDelete:
+		return a.delete.View()
 	case ViewHelp:
 		return a.help.View()
 	default:

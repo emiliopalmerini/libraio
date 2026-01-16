@@ -78,6 +78,7 @@ func (m *HelpModel) View() string {
 	b.WriteString("\n")
 	b.WriteString(helpLine("n", "Create new item/category"))
 	b.WriteString(helpLine("m", "Move item/category"))
+	b.WriteString(helpLine("d", "Delete"))
 	b.WriteString(helpLine("/", "Search"))
 	b.WriteString("\n")
 

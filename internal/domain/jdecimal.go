@@ -58,6 +58,13 @@ var StandardZeros = []StandardZero{
 	{9, "Archive", "Inactive or completed items preserved for reference."},
 }
 
+const (
+	// StandardZeroMax is the highest reserved ID for standard zeros (.00-.09)
+	StandardZeroMax = 9
+	// ItemIDStart is the first ID available for regular items (.11+, skipping .10 as buffer)
+	ItemIDStart = 11
+)
+
 // ParseIDType determines the type of a Johnny Decimal ID string
 func ParseIDType(id string) IDType {
 	id = strings.TrimSpace(id)
@@ -184,22 +191,28 @@ func NextCategoryID(area string, existingCategories []string) (string, error) {
 	return "", fmt.Errorf("no available category IDs in area %s", area)
 }
 
-// NextItemID generates the next item ID within a category
+// NextItemID generates the next item ID within a category.
+// IDs .00-.09 are reserved for standard zeros and are never returned.
+// Regular item IDs start at .11 (with .10 skipped as a buffer).
 func NextItemID(category string, existingItems []string) (string, error) {
 	if ParseIDType(category) != IDTypeCategory {
 		return "", fmt.Errorf("invalid category ID: %s", category)
 	}
 
-	// Find existing item numbers
+	// Find existing item numbers, excluding standard zeros (.00-.09)
 	used := make(map[int]bool)
 	for _, item := range existingItems {
 		if num, err := ExtractNumber(item); err == nil {
+			// Skip standard zeros - they're managed separately
+			if num <= StandardZeroMax {
+				continue
+			}
 			used[num] = true
 		}
 	}
 
-	// Start from 11 (convention: items start at X1)
-	for i := 11; i <= 99; i++ {
+	// Start from ItemIDStart (.11), never use reserved range
+	for i := ItemIDStart; i <= 99; i++ {
 		if !used[i] {
 			return fmt.Sprintf("%s.%02d", category, i), nil
 		}

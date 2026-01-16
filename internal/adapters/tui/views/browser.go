@@ -78,6 +78,7 @@ type BrowserModel struct {
 	root       *domain.TreeNode
 	flatNodes  []*domain.TreeNode
 	cursor     int
+	viewport   int // viewport offset (first visible line)
 	width      int
 	height     int
 	message    string
@@ -195,12 +196,14 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, BrowserKeys.Up):
 			if m.cursor > 0 {
 				m.cursor--
+				m.ensureCursorVisible()
 			}
 			return m, nil
 
 		case key.Matches(msg, BrowserKeys.Down):
 			if m.cursor < len(m.flatNodes)-1 {
 				m.cursor++
+				m.ensureCursorVisible()
 			}
 			return m, nil
 
@@ -461,6 +464,7 @@ func (m *BrowserModel) navigateToResult(result domain.SearchResult) {
 	for i, node := range m.flatNodes {
 		if node.ID == result.ID {
 			m.cursor = i
+			m.ensureCursorVisible()
 			break
 		}
 	}
@@ -550,6 +554,7 @@ func (m *BrowserModel) refreshFlatNodes() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+	m.ensureCursorVisible()
 }
 
 // View renders the browser
@@ -566,8 +571,15 @@ func (m *BrowserModel) View() string {
 	b.WriteString(styles.Subtitle.Render("Johnny Decimal Vault Manager"))
 	b.WriteString("\n\n")
 
-	// Tree
-	for i, node := range m.flatNodes {
+	// Tree (only render visible portion)
+	viewHeight := m.treeViewHeight()
+	endIdx := m.viewport + viewHeight
+	if endIdx > len(m.flatNodes) {
+		endIdx = len(m.flatNodes)
+	}
+
+	for i := m.viewport; i < endIdx; i++ {
+		node := m.flatNodes[i]
 		line := m.renderNode(node, i == m.cursor)
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -724,6 +736,44 @@ func (m *BrowserModel) renderHelpLine() string {
 func (m *BrowserModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.ensureCursorVisible()
+}
+
+// treeViewHeight returns the number of lines available for the tree view
+func (m *BrowserModel) treeViewHeight() int {
+	// Subtract: title (1) + subtitle (1) + blank line (1) + footer area (3)
+	available := m.height - 6
+	if available < 1 {
+		return 1
+	}
+	return available
+}
+
+// ensureCursorVisible adjusts the viewport to keep the cursor visible
+func (m *BrowserModel) ensureCursorVisible() {
+	viewHeight := m.treeViewHeight()
+
+	// Cursor above viewport
+	if m.cursor < m.viewport {
+		m.viewport = m.cursor
+	}
+
+	// Cursor below viewport
+	if m.cursor >= m.viewport+viewHeight {
+		m.viewport = m.cursor - viewHeight + 1
+	}
+
+	// Clamp viewport
+	maxViewport := len(m.flatNodes) - viewHeight
+	if maxViewport < 0 {
+		maxViewport = 0
+	}
+	if m.viewport > maxViewport {
+		m.viewport = maxViewport
+	}
+	if m.viewport < 0 {
+		m.viewport = 0
+	}
 }
 
 // Reload reloads the tree from disk while preserving cursor position and expansion state

@@ -494,7 +494,7 @@ func (r *Repository) Delete(id string) error {
 	return os.RemoveAll(path)
 }
 
-// Search searches for items matching the query in folder names and all markdown files
+// Search searches for items matching the query in folder names and filenames
 func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 	query = strings.ToLower(query)
 	var results []domain.SearchResult
@@ -534,8 +534,8 @@ func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 			return nil
 		}
 
-		// Check all markdown files for filename matches
-		if strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
+		// Check all files for filename matches
+		if !info.IsDir() {
 			// Match against filename (without extension)
 			filename := strings.TrimSuffix(info.Name(), filepath.Ext(info.Name()))
 			if !strings.Contains(strings.ToLower(filename), query) {

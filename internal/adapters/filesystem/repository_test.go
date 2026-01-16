@@ -259,29 +259,52 @@ Collection of movie notes and reviews.
 	return tmpDir, cleanup
 }
 
-func TestSearch_FindsMarkdownFileByFilename(t *testing.T) {
+func TestSearch_FindsFileByFilename(t *testing.T) {
 	vaultPath, cleanup := setupSearchTestVault(t)
 	defer cleanup()
 
-	// Create a markdown file with a searchable filename
 	itemPath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.11 Entertainment", "S01.11.15 Movies")
-	if err := os.WriteFile(filepath.Join(itemPath, "inception-notes.md"), []byte("# Notes"), 0644); err != nil {
-		t.Fatalf("failed to create file: %v", err)
+
+	// Create files with various extensions
+	files := []string{
+		"inception-notes.md",
+		"matrix-script.txt",
+		"interstellar-poster.png",
+		"dune-soundtrack.mp3",
+	}
+
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(itemPath, f), []byte("content"), 0644); err != nil {
+			t.Fatalf("failed to create %s: %v", f, err)
+		}
 	}
 
 	repo := NewRepository(vaultPath)
 
-	results, err := repo.Search("inception")
-	if err != nil {
-		t.Fatalf("Search failed: %v", err)
+	tests := []struct {
+		query    string
+		expectID string
+	}{
+		{"inception", "S01.11.15"},
+		{"matrix", "S01.11.15"},
+		{"interstellar", "S01.11.15"},
+		{"dune", "S01.11.15"},
 	}
 
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
-	}
+	for _, tc := range tests {
+		results, err := repo.Search(tc.query)
+		if err != nil {
+			t.Fatalf("Search '%s' failed: %v", tc.query, err)
+		}
 
-	if results[0].ID != "S01.11.15" {
-		t.Errorf("expected ID S01.11.15, got %s", results[0].ID)
+		if len(results) != 1 {
+			t.Errorf("Search '%s': expected 1 result, got %d", tc.query, len(results))
+			continue
+		}
+
+		if results[0].ID != tc.expectID {
+			t.Errorf("Search '%s': expected ID %s, got %s", tc.query, tc.expectID, results[0].ID)
+		}
 	}
 }
 

@@ -24,6 +24,7 @@ type BrowserKeyMap struct {
 	Yank     key.Binding
 	New      key.Binding
 	Move     key.Binding
+	Archive  key.Binding
 	Delete   key.Binding
 	Search   key.Binding
 	Help     key.Binding
@@ -58,6 +59,10 @@ var BrowserKeys = BrowserKeyMap{
 	Move: key.NewBinding(
 		key.WithKeys("m"),
 		key.WithHelp("m", "move"),
+	),
+	Archive: key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "archive"),
 	),
 	Delete: key.NewBinding(
 		key.WithKeys("d"),
@@ -266,6 +271,34 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if node.Type == domain.IDTypeItem || node.Type == domain.IDTypeCategory {
 					return m, func() tea.Msg {
 						return SwitchToMoveMsg{SourceNode: node}
+					}
+				}
+			}
+			return m, nil
+
+		case key.Matches(msg, BrowserKeys.Archive):
+			// Return command to switch to archive view (only for items and non-archive categories)
+			if node := m.selectedNode(); node != nil {
+				if node.Type == domain.IDTypeItem || node.Type == domain.IDTypeCategory {
+					// Don't allow archiving items already in archive category or archive categories
+					if !strings.HasSuffix(node.ID, "9") {
+						areaID, err := domain.ParseArea(node.ID)
+						if err == nil {
+							archiveCatID, _ := domain.ArchiveCategory(areaID)
+							categoryID, _ := domain.ParseCategory(node.ID)
+							if node.Type == domain.IDTypeItem && categoryID == archiveCatID {
+								// Item is already in archive
+								m.message = "Item is already in archive"
+								m.messageErr = true
+								return m, nil
+							}
+						}
+						return m, func() tea.Msg {
+							return SwitchToArchiveMsg{TargetNode: node}
+						}
+					} else {
+						m.message = "Cannot archive the archive category"
+						m.messageErr = true
 					}
 				}
 			}
@@ -701,20 +734,22 @@ func (m *BrowserModel) renderHelpLine() string {
 	if node != nil {
 		switch node.Type {
 		case domain.IDTypeItem:
-			// Items: open README, open in obsidian, yank ID, move, delete
+			// Items: open README, open in obsidian, yank ID, move, archive, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "open")),
 				BrowserKeys.Obsidian,
 				BrowserKeys.Yank,
 				BrowserKeys.Move,
+				BrowserKeys.Archive,
 				BrowserKeys.Delete,
 			)
 		case domain.IDTypeCategory:
-			// Categories: toggle, new item, move, delete
+			// Categories: toggle, new item, move, archive, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item")),
 				BrowserKeys.Move,
+				BrowserKeys.Archive,
 				BrowserKeys.Delete,
 			)
 		case domain.IDTypeArea:

@@ -490,6 +490,185 @@ func (r *Repository) updateItemIDsInCategory(categoryPath, _, newCategoryID stri
 	}
 }
 
+// ArchiveItem moves an item to the archive category of its area
+func (r *Repository) ArchiveItem(srcItemID string) (*domain.Item, error) {
+	// Validate source is an item
+	if domain.ParseIDType(srcItemID) != domain.IDTypeItem {
+		return nil, fmt.Errorf("source must be an item, got: %s", srcItemID)
+	}
+
+	// Get the item's category and area
+	srcCategoryID, err := domain.ParseCategory(srcItemID)
+	if err != nil {
+		return nil, err
+	}
+
+	areaID, err := domain.ParseArea(srcItemID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get archive category ID for this area
+	archiveCategoryID, err := domain.ArchiveCategory(areaID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if already in archive
+	if srcCategoryID == archiveCategoryID {
+		return nil, fmt.Errorf("item %s is already in archive category %s", srcItemID, archiveCategoryID)
+	}
+
+	// Verify archive category exists
+	_, err = r.findCategoryPath(archiveCategoryID)
+	if err != nil {
+		return nil, fmt.Errorf("archive category %s not found: %w", archiveCategoryID, err)
+	}
+
+	// Get item description for link updates
+	srcPath, err := r.GetPath(srcItemID)
+	if err != nil {
+		return nil, fmt.Errorf("source item not found: %w", err)
+	}
+	description := domain.ExtractDescription(filepath.Base(srcPath))
+
+	// Move the item to archive category
+	archivedItem, err := r.MoveItem(srcItemID, archiveCategoryID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to move item to archive: %w", err)
+	}
+
+	// Update Obsidian links throughout the vault
+	r.updateObsidianLinks(srcItemID, archivedItem.ID, description)
+
+	return archivedItem, nil
+}
+
+// ArchiveCategory moves all non-standard-zero items to the archive category and deletes the source category
+func (r *Repository) ArchiveCategory(srcCategoryID string) ([]*domain.Item, error) {
+	// Validate source is a category
+	if domain.ParseIDType(srcCategoryID) != domain.IDTypeCategory {
+		return nil, fmt.Errorf("source must be a category, got: %s", srcCategoryID)
+	}
+
+	// Get area ID
+	areaID, err := domain.ParseArea(srcCategoryID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get archive category ID
+	archiveCategoryID, err := domain.ArchiveCategory(areaID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if trying to archive the archive category itself
+	if srcCategoryID == archiveCategoryID {
+		return nil, fmt.Errorf("cannot archive the archive category %s", srcCategoryID)
+	}
+
+	// Verify archive category exists
+	_, err = r.findCategoryPath(archiveCategoryID)
+	if err != nil {
+		return nil, fmt.Errorf("archive category %s not found: %w", archiveCategoryID, err)
+	}
+
+	// Get all items in the category
+	items, err := r.ListItems(srcCategoryID)
+	if err != nil {
+		return nil, err
+	}
+
+	var archivedItems []*domain.Item
+
+	// Archive each non-standard-zero item
+	for _, item := range items {
+		// Skip standard zeros (IDs .00-.09)
+		itemNum, err := domain.ExtractNumber(item.ID)
+		if err != nil {
+			continue
+		}
+		if itemNum <= domain.StandardZeroMax {
+			continue
+		}
+
+		// Archive this item
+		archivedItem, err := r.ArchiveItem(item.ID)
+		if err != nil {
+			// Continue with other items even if one fails
+			continue
+		}
+		archivedItems = append(archivedItems, archivedItem)
+	}
+
+	// Delete the source category (now empty of regular items)
+	if err := r.Delete(srcCategoryID); err != nil {
+		return archivedItems, fmt.Errorf("archived items but failed to delete category: %w", err)
+	}
+
+	return archivedItems, nil
+}
+
+// updateObsidianLinks updates all wiki links in the vault from oldID to newID
+func (r *Repository) updateObsidianLinks(oldID, newID, description string) {
+	// Walk the entire vault looking for markdown files
+	filepath.Walk(r.vaultPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+
+		// Skip hidden directories
+		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
+			return filepath.SkipDir
+		}
+
+		// Only process markdown files
+		if info.IsDir() || !strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
+			return nil
+		}
+
+		// Read file content
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		contentStr := string(content)
+		originalContent := contentStr
+
+		// Replace various link formats:
+		// [[S01.11.15 Theatre]] -> [[S01.19.11 Theatre]]
+		// [[S01.11.15]] -> [[S01.19.11 Theatre]]
+		// [[S01.11.15|Custom]] -> [[S01.19.11 Theatre|Custom]]
+		// [[S01.11.15 Theatre|Custom]] -> [[S01.19.11 Theatre|Custom]]
+
+		oldFullLink := fmt.Sprintf("[[%s %s]]", oldID, description)
+		newFullLink := fmt.Sprintf("[[%s %s]]", newID, description)
+		contentStr = strings.ReplaceAll(contentStr, oldFullLink, newFullLink)
+
+		// Replace ID-only links: [[S01.11.15]] -> [[S01.19.11 Theatre]]
+		oldIDLink := fmt.Sprintf("[[%s]]", oldID)
+		contentStr = strings.ReplaceAll(contentStr, oldIDLink, newFullLink)
+
+		// Replace aliased links: [[S01.11.15|...]] -> [[S01.19.11 Theatre|...]]
+		// We need to use regex for this
+		oldAliasPattern := regexp.MustCompile(`\[\[` + regexp.QuoteMeta(oldID) + `\|`)
+		contentStr = oldAliasPattern.ReplaceAllString(contentStr, fmt.Sprintf("[[%s %s|", newID, description))
+
+		// Replace full aliased links: [[S01.11.15 Theatre|...]] -> [[S01.19.11 Theatre|...]]
+		oldFullAliasPattern := regexp.MustCompile(`\[\[` + regexp.QuoteMeta(oldID+" "+description) + `\|`)
+		contentStr = oldFullAliasPattern.ReplaceAllString(contentStr, fmt.Sprintf("[[%s %s|", newID, description))
+
+		// Only write if content changed
+		if contentStr != originalContent {
+			os.WriteFile(path, []byte(contentStr), 0644)
+		}
+
+		return nil
+	})
+}
+
 // Delete removes an item, category, area, or scope by ID
 func (r *Repository) Delete(id string) error {
 	path, err := r.GetPath(id)

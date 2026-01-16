@@ -48,8 +48,8 @@ func (o *Opener) BuildURI(filePath string) (string, error) {
 	relPath = filepath.ToSlash(relPath)
 
 	uri := fmt.Sprintf("obsidian://open?vault=%s&file=%s",
-		url.QueryEscape(o.vaultName),
-		url.QueryEscape(relPath),
+		url.PathEscape(o.vaultName),
+		url.PathEscape(relPath),
 	)
 
 	return uri, nil

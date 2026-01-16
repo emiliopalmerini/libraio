@@ -2,7 +2,7 @@
 
 pkgs.buildGoModule {
   pname = "libraio";
-  version = "0.1.0";
+  version = "0.2.0";
   src = pkgs.lib.cleanSource ../.;
 
   vendorHash = "sha256-Y8e9L1O44A+kmICBSKroHV4XNRY/4+vyaI2sGnFSGjE=";

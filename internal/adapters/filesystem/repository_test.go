@@ -88,43 +88,61 @@ func TestCreateCategory_RollbackOnFailure(t *testing.T) {
 	vaultPath, cleanup := setupTestVault(t)
 	defer cleanup()
 
+	areaPath := filepath.Join(vaultPath, "S01 Test", "S01.10-19 TestArea")
+
+	// Create a category folder manually (simulating what CreateCategory does)
+	categoryPath := filepath.Join(areaPath, "S01.11 TestRollback")
+	if err := os.MkdirAll(categoryPath, 0755); err != nil {
+		t.Fatalf("failed to create category folder: %v", err)
+	}
+
+	// Create a FILE where a standard zero DIRECTORY should be
+	// This will cause CreateStandardZeros to fail
+	conflictPath := filepath.Join(categoryPath, "S01.11.00 JDex")
+	if err := os.WriteFile(conflictPath, []byte("conflict"), 0644); err != nil {
+		t.Fatalf("failed to create conflict file: %v", err)
+	}
+
 	repo := NewRepository(vaultPath)
 
-	// Create category first
-	cat, err := repo.CreateCategory("S01.10-19", "Test")
-	if err != nil {
-		t.Fatalf("CreateCategory failed: %v", err)
+	// Test CreateStandardZeros directly - it should fail because JDex path is a file
+	err := repo.CreateStandardZeros("S01.11", categoryPath)
+
+	if err == nil {
+		t.Fatal("expected CreateStandardZeros to fail, but it succeeded")
 	}
 
-	// Make one of the standard zero dirs read-only to cause failure
-	jdexPath := filepath.Join(cat.Path, "S01.11.00 JDex")
-	if err := os.Chmod(jdexPath, 0000); err != nil {
-		t.Skipf("cannot change permissions: %v", err)
+	if !strings.Contains(err.Error(), "JDex") {
+		t.Errorf("expected error to mention JDex, got: %v", err)
 	}
-	defer os.Chmod(jdexPath, 0755)
+}
 
-	// Try to create another category - this should work since it's a different category
-	// Let's test rollback by creating a scenario where standard zeros fail
-	// We need to make the category path unwritable after creation
+func TestCreateCategory_RollbackIntegration(t *testing.T) {
+	vaultPath, cleanup := setupTestVault(t)
+	defer cleanup()
 
-	// Create a new category path manually
 	areaPath := filepath.Join(vaultPath, "S01 Test", "S01.10-19 TestArea")
-	newCatPath := filepath.Join(areaPath, "S01.12 Failing")
-	if err := os.MkdirAll(newCatPath, 0755); err != nil {
-		t.Fatalf("failed to create test category: %v", err)
+
+	// Create a read-only category folder to simulate failure during standard zero creation
+	categoryPath := filepath.Join(areaPath, "S01.11 ReadOnly")
+	if err := os.MkdirAll(categoryPath, 0755); err != nil {
+		t.Fatalf("failed to create category folder: %v", err)
 	}
 
-	// Make it read-only so standard zeros can't be created
-	if err := os.Chmod(newCatPath, 0555); err != nil {
+	// Make category folder read-only so we can't create subdirectories
+	if err := os.Chmod(categoryPath, 0555); err != nil {
 		t.Skipf("cannot change permissions: %v", err)
 	}
+	defer os.Chmod(categoryPath, 0755) // Restore for cleanup
 
-	// Try creating a category - the ID S01.12 is taken, so it will try S01.13
-	_, err = repo.CreateCategory("S01.10-19", "Another")
-	// This should succeed because S01.13 is available
+	repo := NewRepository(vaultPath)
 
-	// Restore permissions for cleanup
-	os.Chmod(newCatPath, 0755)
+	// CreateStandardZeros should fail because we can't create subdirectories
+	err := repo.CreateStandardZeros("S01.11", categoryPath)
+
+	if err == nil {
+		t.Fatal("expected CreateStandardZeros to fail on read-only directory")
+	}
 }
 
 func TestCreateCategory_StandardZeroCount(t *testing.T) {

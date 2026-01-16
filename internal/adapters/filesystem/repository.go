@@ -217,7 +217,7 @@ func (r *Repository) CreateCategory(areaID, description string) (*domain.Categor
 	}
 
 	// Create standard zero items with rollback on failure
-	if err := r.createStandardZeros(newID, categoryPath); err != nil {
+	if err := r.CreateStandardZeros(newID, categoryPath); err != nil {
 		os.RemoveAll(categoryPath)
 		return nil, fmt.Errorf("failed to create standard zeros: %w", err)
 	}
@@ -230,8 +230,8 @@ func (r *Repository) CreateCategory(areaID, description string) (*domain.Categor
 	}, nil
 }
 
-// createStandardZeros creates all standard zero items in a category
-func (r *Repository) createStandardZeros(categoryID, categoryPath string) error {
+// CreateStandardZeros creates all standard zero items in a category
+func (r *Repository) CreateStandardZeros(categoryID, categoryPath string) error {
 	for _, sz := range domain.StandardZeros {
 		itemID := fmt.Sprintf("%s.%02d", categoryID, sz.Number)
 		folderName := domain.FormatFolderName(itemID, sz.Name)

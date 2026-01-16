@@ -410,9 +410,13 @@ func (m *BrowserModel) fuzzySort(results []domain.SearchResult, query string) []
 	for _, r := range results {
 		s1 := fuzzyScore(r.ID, query)
 		s2 := fuzzyScore(r.Name, query)
+		s3 := fuzzyScore(r.MatchedText, query)
 		best := s1
 		if s2 > best {
 			best = s2
+		}
+		if s3 > best {
+			best = s3
 		}
 		if best > 0 {
 			scoredResults = append(scoredResults, scored{result: r, score: best})

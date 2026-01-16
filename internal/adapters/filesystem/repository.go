@@ -494,7 +494,7 @@ func (r *Repository) Delete(id string) error {
 	return os.RemoveAll(path)
 }
 
-// Search searches for items matching the query in folder names and README content
+// Search searches for items matching the query in folder names and all markdown files
 func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 	query = strings.ToLower(query)
 	var results []domain.SearchResult
@@ -534,40 +534,54 @@ func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 			return nil
 		}
 
-		// Check README.md files for content matches (items only)
-		if info.Name() == "README.md" {
-			dirPath := filepath.Dir(path)
-			dirName := filepath.Base(dirPath)
-			id := domain.ExtractID(dirName)
+		// Check all markdown files for filename matches
+		if strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
+			// Match against filename (without extension)
+			filename := strings.TrimSuffix(info.Name(), filepath.Ext(info.Name()))
+			if !strings.Contains(strings.ToLower(filename), query) {
+				return nil
+			}
+
+			// Find the nearest parent with a valid Johnny Decimal ID
+			id, idPath := r.findNearestID(path)
+			if id == "" || seen[id] {
+				return nil
+			}
+
 			idType := domain.ParseIDType(id)
-
-			// Only search README for items
-			if idType != domain.IDTypeItem || seen[id] {
-				return nil
-			}
-
-			// Read README content
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-
-			if strings.Contains(strings.ToLower(string(content)), query) {
-				seen[id] = true
-				results = append(results, domain.SearchResult{
-					Type:        idType,
-					ID:          id,
-					Name:        domain.ExtractDescription(dirName),
-					Path:        dirPath,
-					MatchedText: dirName,
-				})
-			}
+			seen[id] = true
+			results = append(results, domain.SearchResult{
+				Type:        idType,
+				ID:          id,
+				Name:        domain.ExtractDescription(filepath.Base(idPath)),
+				Path:        idPath,
+				MatchedText: filename, // Use matched filename for scoring
+			})
 		}
 
 		return nil
 	})
 
 	return results, err
+}
+
+// findNearestID finds the nearest parent directory with a valid Johnny Decimal ID
+func (r *Repository) findNearestID(path string) (string, string) {
+	currentPath := filepath.Dir(path)
+
+	for currentPath != r.vaultPath && currentPath != "/" && currentPath != "." {
+		dirName := filepath.Base(currentPath)
+		id := domain.ExtractID(dirName)
+		idType := domain.ParseIDType(id)
+
+		if idType != domain.IDTypeUnknown {
+			return id, currentPath
+		}
+
+		currentPath = filepath.Dir(currentPath)
+	}
+
+	return "", ""
 }
 
 // BuildTree builds the complete vault tree

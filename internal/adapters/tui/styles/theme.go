@@ -3,20 +3,20 @@ package styles
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	// Colors
-	Primary   = lipgloss.Color("#7C3AED") // Purple
-	Secondary = lipgloss.Color("#10B981") // Green
-	Muted     = lipgloss.Color("#6B7280") // Gray
-	Warning   = lipgloss.Color("#F59E0B") // Amber
-	Error     = lipgloss.Color("#EF4444") // Red
+	// Colors - NASA inspired: white, black, orange, gray
+	Primary   = lipgloss.Color("#FF6B35") // NASA Orange
+	Secondary = lipgloss.Color("#FFFFFF") // White
+	Muted     = lipgloss.Color("#71717A") // Gray
+	Warning   = lipgloss.Color("#FB923C") // Light Orange
+	Error     = lipgloss.Color("#DC2626") // Red
 	White     = lipgloss.Color("#FFFFFF")
 	Black     = lipgloss.Color("#000000")
 
-	// Scope colors
-	ScopeS00 = lipgloss.Color("#6366F1") // Indigo
-	ScopeS01 = lipgloss.Color("#8B5CF6") // Violet
-	ScopeS02 = lipgloss.Color("#EC4899") // Pink
-	ScopeS03 = lipgloss.Color("#F97316") // Orange
+	// Scope colors - variations of orange and gray
+	ScopeS00 = lipgloss.Color("#FF6B35") // NASA Orange
+	ScopeS01 = lipgloss.Color("#F97316") // Bright Orange
+	ScopeS02 = lipgloss.Color("#EA580C") // Deep Orange
+	ScopeS03 = lipgloss.Color("#9CA3AF") // Cool Gray
 
 	// Base styles
 	App = lipgloss.NewStyle().
@@ -39,7 +39,7 @@ var (
 			Foreground(Secondary)
 
 	NodeCategory = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#60A5FA")) // Blue
+			Foreground(lipgloss.Color("#D4D4D8")) // Light Gray
 
 	NodeItem = lipgloss.NewStyle()
 

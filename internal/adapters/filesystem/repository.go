@@ -9,11 +9,23 @@ import (
 	"strings"
 
 	"libraio/internal/domain"
+	"libraio/internal/ports"
 )
 
 // Repository implements ports.VaultRepository using the filesystem
 type Repository struct {
 	vaultPath string
+	index     ports.VaultIndex // Optional cache for faster operations
+}
+
+// RepoOption is a functional option for configuring Repository
+type RepoOption func(*Repository)
+
+// WithIndex enables SQLite caching for the repository
+func WithIndex(index ports.VaultIndex) RepoOption {
+	return func(r *Repository) {
+		r.index = index
+	}
 }
 
 // LinkReplacement defines a single link transformation for vault-wide updates
@@ -87,13 +99,17 @@ func (r *Repository) nextAvailableCategoryID(areaID string) (string, error) {
 }
 
 // NewRepository creates a new filesystem repository
-func NewRepository(vaultPath string) *Repository {
+func NewRepository(vaultPath string, opts ...RepoOption) *Repository {
 	// Expand ~ to home directory
 	if strings.HasPrefix(vaultPath, "~") {
 		home, _ := os.UserHomeDir()
 		vaultPath = filepath.Join(home, vaultPath[1:])
 	}
-	return &Repository{vaultPath: vaultPath}
+	r := &Repository{vaultPath: vaultPath}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // VaultPath returns the expanded vault path
@@ -402,6 +418,9 @@ func (r *Repository) MoveItem(srcItemID, dstCategoryID string) (*domain.Item, er
 		return domain.UpdateReadmeID(content, srcItemID, newID, description)
 	})
 
+	// Update Obsidian links throughout the vault
+	r.updateObsidianLinksWithCache(srcItemID, newID, description)
+
 	return &domain.Item{
 		ID:         newID,
 		Name:       description,
@@ -456,8 +475,11 @@ func (r *Repository) MoveCategory(srcCategoryID, dstAreaID string) (*domain.Cate
 		return nil, fmt.Errorf("failed to move category: %w", err)
 	}
 
-	// Update all item IDs within the category
+	// Update all item IDs within the category (also updates Obsidian links)
 	r.updateItemIDsInCategory(dstPath, srcCategoryID, newID)
+
+	// Update links to the category itself
+	r.updateObsidianLinksWithCache(srcCategoryID, newID, description)
 
 	return &domain.Category{
 		ID:     newID,
@@ -514,6 +536,9 @@ func (r *Repository) updateItemIDsInCategory(categoryPath, _, newCategoryID stri
 		updateJDexFile(newPath, oldFolderName, newJDexPath, func(content string) string {
 			return domain.UpdateReadmeID(content, oldItemID, newItemID, description)
 		})
+
+		// Update Obsidian links for this item
+		r.updateObsidianLinksWithCache(oldItemID, newItemID, description)
 	}
 }
 
@@ -738,6 +763,53 @@ func (r *Repository) updateObsidianLinksForArchive(oldID, description string) {
 	}
 
 	r.updateVaultLinks(replacements)
+}
+
+// updateObsidianLinksWithCache updates wiki links using the index if available
+func (r *Repository) updateObsidianLinksWithCache(oldID, newID, description string) {
+	if r.index != nil {
+		// Use indexed lookup for O(k) performance where k = files with links
+		edges, err := r.index.FindLinksToID(oldID)
+		if err == nil && len(edges) > 0 {
+			newFullLink := fmt.Sprintf("[[%s %s]]", newID, description)
+			newAliasPrefix := fmt.Sprintf("[[%s %s|", newID, description)
+
+			for _, edge := range edges {
+				fullPath := filepath.Join(r.vaultPath, edge.SourcePath)
+				content, err := os.ReadFile(fullPath)
+				if err != nil {
+					continue
+				}
+
+				contentStr := string(content)
+				originalContent := contentStr
+
+				// Apply replacements
+				contentStr = strings.ReplaceAll(contentStr, fmt.Sprintf("[[%s %s]]", oldID, description), newFullLink)
+				contentStr = strings.ReplaceAll(contentStr, fmt.Sprintf("[[%s]]", oldID), newFullLink)
+
+				// Handle aliased links with regex
+				re1 := regexp.MustCompile(`\[\[` + regexp.QuoteMeta(oldID) + `\|`)
+				contentStr = re1.ReplaceAllString(contentStr, newAliasPrefix)
+				re2 := regexp.MustCompile(`\[\[` + regexp.QuoteMeta(oldID+" "+description) + `\|`)
+				contentStr = re2.ReplaceAllString(contentStr, newAliasPrefix)
+
+				if contentStr != originalContent {
+					os.WriteFile(fullPath, []byte(contentStr), 0644)
+				}
+			}
+
+			// Update edge targets in the index
+			if tx, err := r.index.BeginTx(); err == nil {
+				tx.UpdateEdgeTarget(oldID, newID, newFullLink)
+				tx.Commit()
+			}
+			return
+		}
+	}
+
+	// Fallback: full vault walk
+	r.updateObsidianLinks(oldID, newID, description)
 }
 
 // updateObsidianLinks updates all wiki links in the vault from oldID to newID

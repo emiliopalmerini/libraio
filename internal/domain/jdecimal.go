@@ -221,19 +221,64 @@ func NextItemID(category string, existingItems []string) (string, error) {
 	return "", fmt.Errorf("no available item IDs in category %s", category)
 }
 
-// ArchiveCategory returns the archive category for an area
-func ArchiveCategory(area string) (string, error) {
-	if ParseIDType(area) != IDTypeArea {
-		return "", fmt.Errorf("invalid area ID: %s", area)
+// ArchiveItemID returns the archive item ID (.09) for a category
+// e.g., S01.11 -> S01.11.09
+func ArchiveItemID(categoryID string) (string, error) {
+	if ParseIDType(categoryID) != IDTypeCategory {
+		return "", fmt.Errorf("invalid category ID: %s", categoryID)
+	}
+	return fmt.Sprintf("%s.09", categoryID), nil
+}
+
+// IsArchiveItem checks if an item ID is an archive item (.09)
+func IsArchiveItem(itemID string) bool {
+	if ParseIDType(itemID) != IDTypeItem {
+		return false
+	}
+	parts := strings.Split(itemID, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	return parts[2] == "09"
+}
+
+// ManagementCategoryID returns the management category ID (.X0) for a category
+// e.g., S01.11 -> S01.10, S01.25 -> S01.20
+// Management categories return themselves (S01.10 -> S01.10)
+func ManagementCategoryID(categoryID string) (string, error) {
+	if ParseIDType(categoryID) != IDTypeCategory {
+		return "", fmt.Errorf("invalid category ID: %s", categoryID)
 	}
 
-	parts := strings.Split(area, ".")
-	scope := parts[0]
-	rangePart := parts[1]
-	rangeParts := strings.Split(rangePart, "-")
+	parts := strings.Split(categoryID, ".")
+	if len(parts) != 2 || len(parts[1]) != 2 {
+		return "", fmt.Errorf("invalid category ID format: %s", categoryID)
+	}
 
-	archiveNum, _ := strconv.Atoi(rangeParts[1])
-	return fmt.Sprintf("%s.%02d", scope, archiveNum), nil
+	// Get tens digit and form .X0 category
+	tensDigit := parts[1][0:1]
+	return fmt.Sprintf("%s.%s0", parts[0], tensDigit), nil
+}
+
+// AreaArchiveItemID returns the area archive item ID (.X0.09) for a category
+// e.g., S01.11 -> S01.10.09, S01.25 -> S01.20.09
+// Management categories (.X0) cannot be archived to themselves, returns error
+func AreaArchiveItemID(categoryID string) (string, error) {
+	if ParseIDType(categoryID) != IDTypeCategory {
+		return "", fmt.Errorf("invalid category ID: %s", categoryID)
+	}
+
+	// Management categories can't archive to themselves
+	if IsAreaManagementCategory(categoryID) {
+		return "", fmt.Errorf("management category %s cannot be archived to area archive", categoryID)
+	}
+
+	mgmtCatID, err := ManagementCategoryID(categoryID)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s.09", mgmtCatID), nil
 }
 
 // IsAreaManagementCategory checks if a category ID is an area-level management category (.X0)
@@ -265,14 +310,19 @@ func AreaRangeFromCategory(categoryID string) string {
 }
 
 // StandardZeroNameForContext returns the appropriate standard zero name based on category context
-// For area-level categories (.X0): "Inbox" -> "Inbox for area X0-X9"
-// For regular categories: "Inbox" -> "Inbox"
+// For area-level categories (.X0): "Inbox" -> "Inbox for S01.10-19"
+// For regular categories: "Inbox" -> "Inbox for S01.11"
 func StandardZeroNameForContext(baseName, categoryID string) string {
 	if IsAreaManagementCategory(categoryID) {
-		areaRange := AreaRangeFromCategory(categoryID)
-		return fmt.Sprintf("%s for area %s", baseName, areaRange)
+		// Area management category: use area ID format (S01.10-19)
+		areaID, err := ParseArea(categoryID)
+		if err != nil {
+			return baseName
+		}
+		return fmt.Sprintf("%s for %s", baseName, areaID)
 	}
-	return baseName
+	// Regular category: use category ID (S01.11)
+	return fmt.Sprintf("%s for %s", baseName, categoryID)
 }
 
 // JDexFileName returns the JDex filename for a folder name

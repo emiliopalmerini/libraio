@@ -166,14 +166,20 @@ func (m *ArchiveModel) View() string {
 		b.WriteString("\n\n")
 
 		// Show archive destination
-		if m.targetNode.Type == application.IDTypeItem || m.targetNode.Type == application.IDTypeCategory {
-			areaID, err := application.ParseArea(m.targetNode.ID)
+		if m.targetNode.Type == application.IDTypeItem {
+			categoryID, err := application.ParseCategory(m.targetNode.ID)
 			if err == nil {
-				archiveCatID, err := application.ArchiveCategory(areaID)
+				archiveItemID, err := application.ArchiveItemID(categoryID)
 				if err == nil {
-					b.WriteString(styles.MutedText.Render(fmt.Sprintf("  Destination: %s Archive", archiveCatID)))
+					b.WriteString(styles.MutedText.Render(fmt.Sprintf("  Destination: %s Archive", archiveItemID)))
 					b.WriteString("\n\n")
 				}
+			}
+		} else if m.targetNode.Type == application.IDTypeCategory {
+			archiveItemID, err := application.ArchiveItemID(m.targetNode.ID)
+			if err == nil {
+				b.WriteString(styles.MutedText.Render(fmt.Sprintf("  Destination: %s Archive", archiveItemID)))
+				b.WriteString("\n\n")
 			}
 		}
 	}

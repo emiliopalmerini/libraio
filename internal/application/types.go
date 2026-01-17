@@ -33,7 +33,17 @@ func ParseArea(id string) (string, error) {
 	return domain.ParseArea(id)
 }
 
-// ArchiveCategory returns the archive category ID for an area
-func ArchiveCategory(area string) (string, error) {
-	return domain.ArchiveCategory(area)
+// ParseCategory extracts the category from an item ID
+func ParseCategory(id string) (string, error) {
+	return domain.ParseCategory(id)
+}
+
+// ArchiveItemID returns the archive item ID (.09) for a category
+func ArchiveItemID(categoryID string) (string, error) {
+	return domain.ArchiveItemID(categoryID)
+}
+
+// IsArchiveItem checks if an item ID is an archive item (.09)
+func IsArchiveItem(itemID string) bool {
+	return domain.IsArchiveItem(itemID)
 }

@@ -134,6 +134,57 @@ func padNum(n int) string {
 	return string(rune('0'+n/10)) + string(rune('0'+n%10))
 }
 
+func TestArchiveItemID(t *testing.T) {
+	tests := []struct {
+		categoryID string
+		want       string
+		wantErr    bool
+	}{
+		{"S01.11", "S01.11.09", false},
+		{"S01.21", "S01.21.09", false},
+		{"S01.10", "S01.10.09", false},
+		{"S01", "", true},       // Scope, not category
+		{"S01.10-19", "", true}, // Area, not category
+		{"S01.11.11", "", true}, // Item, not category
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.categoryID, func(t *testing.T) {
+			got, err := ArchiveItemID(tt.categoryID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ArchiveItemID(%q) error = %v, wantErr %v", tt.categoryID, err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ArchiveItemID(%q) = %q, want %q", tt.categoryID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsArchiveItem(t *testing.T) {
+	tests := []struct {
+		itemID string
+		want   bool
+	}{
+		{"S01.11.09", true},  // Archive item
+		{"S01.21.09", true},  // Archive item
+		{"S01.11.01", false}, // Inbox, not archive
+		{"S01.11.11", false}, // Regular item
+		{"S01.11", false},    // Category, not item
+		{"S01", false},       // Scope, not item
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.itemID, func(t *testing.T) {
+			got := IsArchiveItem(tt.itemID)
+			if got != tt.want {
+				t.Errorf("IsArchiveItem(%q) = %v, want %v", tt.itemID, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsAreaManagementCategory(t *testing.T) {
 	tests := []struct {
 		categoryID string
@@ -193,14 +244,18 @@ func TestStandardZeroNameForContext(t *testing.T) {
 		categoryID string
 		want       string
 	}{
-		// Area-level categories should get "for area X0-X9" suffix
-		{"Inbox", "S01.10", "Inbox for area 10-19"},
-		{"Tasks", "S01.20", "Tasks for area 20-29"},
-		{"Archive", "S01.30", "Archive for area 30-39"},
-		// Regular categories should use simple names
-		{"Inbox", "S01.11", "Inbox"},
-		{"Tasks", "S01.21", "Tasks"},
-		{"Archive", "S01.19", "Archive"},
+		// Area management categories (.X0) get "for SXX.X0-X9" suffix
+		{"Inbox", "S01.10", "Inbox for S01.10-19"},
+		{"Tasks", "S01.20", "Tasks for S01.20-29"},
+		{"Archive", "S01.30", "Archive for S01.30-39"},
+		// Regular categories get "for SXX.XX" suffix
+		{"Inbox", "S01.11", "Inbox for S01.11"},
+		{"Tasks", "S01.21", "Tasks for S01.21"},
+		{"Archive", "S01.19", "Archive for S01.19"},
+		// Different scopes
+		{"Inbox", "S02.10", "Inbox for S02.10-19"},
+		{"Inbox", "S02.11", "Inbox for S02.11"},
+		{"Inbox", "S03.25", "Inbox for S03.25"},
 	}
 
 	for _, tt := range tests {
@@ -213,13 +268,84 @@ func TestStandardZeroNameForContext(t *testing.T) {
 	}
 }
 
+func TestAreaArchiveItemID(t *testing.T) {
+	tests := []struct {
+		categoryID string
+		want       string
+		wantErr    bool
+	}{
+		// Regular categories → area's .X0.09 archive
+		{"S01.11", "S01.10.09", false},
+		{"S01.12", "S01.10.09", false},
+		{"S01.19", "S01.10.09", false},
+		{"S01.21", "S01.20.09", false},
+		{"S01.25", "S01.20.09", false},
+		{"S02.35", "S02.30.09", false},
+		// Management categories (.X0) should error - can't archive to self
+		{"S01.10", "", true},
+		{"S01.20", "", true},
+		// Invalid inputs
+		{"S01", "", true},       // Scope
+		{"S01.10-19", "", true}, // Area
+		{"S01.11.11", "", true}, // Item
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.categoryID, func(t *testing.T) {
+			got, err := AreaArchiveItemID(tt.categoryID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AreaArchiveItemID(%q) error = %v, wantErr %v", tt.categoryID, err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("AreaArchiveItemID(%q) = %q, want %q", tt.categoryID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestManagementCategoryID(t *testing.T) {
+	tests := []struct {
+		categoryID string
+		want       string
+		wantErr    bool
+	}{
+		// Regular categories → their area's management category (.X0)
+		{"S01.11", "S01.10", false},
+		{"S01.19", "S01.10", false},
+		{"S01.21", "S01.20", false},
+		{"S01.35", "S01.30", false},
+		{"S02.45", "S02.40", false},
+		// Management categories return themselves
+		{"S01.10", "S01.10", false},
+		{"S01.20", "S01.20", false},
+		// Invalid inputs
+		{"S01", "", true},       // Scope
+		{"S01.10-19", "", true}, // Area
+		{"S01.11.11", "", true}, // Item
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.categoryID, func(t *testing.T) {
+			got, err := ManagementCategoryID(tt.categoryID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ManagementCategoryID(%q) error = %v, wantErr %v", tt.categoryID, err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ManagementCategoryID(%q) = %q, want %q", tt.categoryID, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestJDexFileName(t *testing.T) {
 	tests := []struct {
 		folderName string
 		want       string
 	}{
-		{"S01.11.01 Inbox", "S01.11.01 Inbox.md"},
-		{"S01.10.01 Inbox for area 10-19", "S01.10.01 Inbox for area 10-19.md"},
+		{"S01.11.01 Inbox for S01.11", "S01.11.01 Inbox for S01.11.md"},
+		{"S01.10.01 Inbox for S01.10-19", "S01.10.01 Inbox for S01.10-19.md"},
 		{"S01.11.11 Theatre", "S01.11.11 Theatre.md"},
 	}
 

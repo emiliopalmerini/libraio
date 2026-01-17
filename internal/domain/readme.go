@@ -90,3 +90,19 @@ func UpdateReadmeID(content, oldID, newID, newDescription string) string {
 
 	return content
 }
+
+// UpdateReadmeForArchive removes the ID from README content when archiving
+// e.g., "S01.11.15 Theatre" becomes "[Archived] Theatre"
+func UpdateReadmeForArchive(content, oldID, description string) string {
+	oldFullTitle := fmt.Sprintf("%s %s", oldID, description)
+	archivedTitle := "[Archived] " + description
+
+	// Update alias: "S01.11.15 Theatre" -> "[Archived] Theatre"
+	content = strings.ReplaceAll(content, oldFullTitle, archivedTitle)
+
+	// Update standalone ID references
+	content = strings.ReplaceAll(content, oldID+" ", "[Archived] ")
+	content = strings.ReplaceAll(content, oldID, archivedTitle)
+
+	return content
+}

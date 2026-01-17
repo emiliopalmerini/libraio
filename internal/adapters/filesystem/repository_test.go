@@ -52,36 +52,83 @@ func TestCreateCategory_CreatesStandardZeros(t *testing.T) {
 		t.Errorf("expected category ID S01.11, got %s", cat.ID)
 	}
 
-	// Verify all standard zeros were created
+	// Verify all standard zeros were created with correct naming
 	for _, sz := range domain.StandardZeros {
 		itemID := cat.ID + "." + padNumber(sz.Number)
-		folderName := domain.FormatFolderName(itemID, sz.Name)
+		// Use context-aware naming: "Inbox for S01.11"
+		itemName := domain.StandardZeroNameForContext(sz.Name, cat.ID)
+		folderName := domain.FormatFolderName(itemID, itemName)
 		itemPath := filepath.Join(cat.Path, folderName)
 
 		if _, err := os.Stat(itemPath); os.IsNotExist(err) {
-			t.Errorf("standard zero %s not created at %s", sz.Name, itemPath)
+			t.Errorf("standard zero %s not created at %s", itemName, itemPath)
 		}
 
 		// JDex file is now named after the folder
 		jdexPath := filepath.Join(itemPath, domain.JDexFileName(folderName))
 		if _, err := os.Stat(jdexPath); os.IsNotExist(err) {
-			t.Errorf("JDex file not created for %s", sz.Name)
+			t.Errorf("JDex file not created for %s", itemName)
 		}
 
 		content, err := os.ReadFile(jdexPath)
 		if err != nil {
-			t.Errorf("failed to read JDex for %s: %v", sz.Name, err)
+			t.Errorf("failed to read JDex for %s: %v", itemName, err)
 			continue
 		}
 
 		// Verify JDex contains the purpose
 		if !strings.Contains(string(content), sz.Purpose) {
-			t.Errorf("JDex for %s does not contain purpose text", sz.Name)
+			t.Errorf("JDex for %s does not contain purpose text", itemName)
 		}
 
 		// Verify standard-zero tag
 		if !strings.Contains(string(content), "standard-zero") {
-			t.Errorf("JDex for %s does not contain standard-zero tag", sz.Name)
+			t.Errorf("JDex for %s does not contain standard-zero tag", itemName)
+		}
+
+		// Verify naming format includes "for S01.11"
+		if !strings.Contains(folderName, "for S01.11") {
+			t.Errorf("expected folder name to contain 'for S01.11', got %s", folderName)
+		}
+	}
+}
+
+func TestCreateCategory_AreaManagementNaming(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "libraio-area-mgmt-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create scope and area for management category
+	scopePath := filepath.Join(tmpDir, "S01 Test")
+	os.MkdirAll(scopePath, 0755)
+	areaPath := filepath.Join(scopePath, "S01.10-19 Lifestyle")
+	os.MkdirAll(areaPath, 0755)
+
+	// Pre-create the .10 management category folder to simulate existing structure
+	// Then use CreateStandardZeros to test the naming
+	mgmtCatPath := filepath.Join(areaPath, "S01.10 Management for S01.10-19")
+	os.MkdirAll(mgmtCatPath, 0755)
+
+	repo := NewRepository(tmpDir)
+
+	// Create standard zeros in area management category
+	err = repo.CreateStandardZeros("S01.10", mgmtCatPath)
+	if err != nil {
+		t.Fatalf("CreateStandardZeros failed: %v", err)
+	}
+
+	// Verify standard zeros use area ID format: "Inbox for S01.10-19"
+	for _, sz := range domain.StandardZeros {
+		itemID := fmt.Sprintf("S01.10.%02d", sz.Number)
+		// Area management should use "for S01.10-19" format
+		expectedName := fmt.Sprintf("%s for S01.10-19", sz.Name)
+		folderName := domain.FormatFolderName(itemID, expectedName)
+		itemPath := filepath.Join(mgmtCatPath, folderName)
+
+		if _, err := os.Stat(itemPath); os.IsNotExist(err) {
+			t.Errorf("standard zero not created with expected naming at %s", itemPath)
 		}
 	}
 }
@@ -100,7 +147,8 @@ func TestCreateCategory_RollbackOnFailure(t *testing.T) {
 
 	// Create a FILE where a standard zero DIRECTORY should be
 	// This will cause CreateStandardZeros to fail
-	conflictPath := filepath.Join(categoryPath, "S01.11.00 JDex")
+	// Use the new naming format: "JDex for S01.11"
+	conflictPath := filepath.Join(categoryPath, "S01.11.00 JDex for S01.11")
 	if err := os.WriteFile(conflictPath, []byte("conflict"), 0644); err != nil {
 		t.Fatalf("failed to create conflict file: %v", err)
 	}
@@ -498,18 +546,33 @@ func setupArchiveTestVault(t *testing.T) (string, func()) {
 		t.Fatalf("failed to create category: %v", err)
 	}
 
-	// Create archive category
-	archiveCategoryPath := filepath.Join(areaPath, "S01.19 Archive")
-	if err := os.MkdirAll(archiveCategoryPath, 0755); err != nil {
-		t.Fatalf("failed to create archive category: %v", err)
+	// Create category-level archive item (.09 Archive for S01.11)
+	archiveItemPath := filepath.Join(categoryPath, "S01.11.09 Archive for S01.11")
+	if err := os.MkdirAll(archiveItemPath, 0755); err != nil {
+		t.Fatalf("failed to create archive item: %v", err)
+	}
+	archiveReadme := `---
+aliases:
+  - S01.11.09 Archive for S01.11
+tags:
+  - jdex
+  - standard-zero
+---
+
+# S01.11.09 Archive for S01.11
+
+Archived items for this category.
+`
+	if err := os.WriteFile(filepath.Join(archiveItemPath, "S01.11.09 Archive for S01.11.md"), []byte(archiveReadme), 0644); err != nil {
+		t.Fatalf("failed to create archive JDex: %v", err)
 	}
 
-	// Create item in category with README
+	// Create item in category with JDex file
 	itemPath := filepath.Join(categoryPath, "S01.11.15 Theatre")
 	if err := os.MkdirAll(itemPath, 0755); err != nil {
 		t.Fatalf("failed to create item: %v", err)
 	}
-	readme := `---
+	jdexContent := `---
 aliases:
   - S01.11.15 Theatre
 tags:
@@ -520,8 +583,8 @@ tags:
 
 Theatre collection.
 `
-	if err := os.WriteFile(filepath.Join(itemPath, "README.md"), []byte(readme), 0644); err != nil {
-		t.Fatalf("failed to create README: %v", err)
+	if err := os.WriteFile(filepath.Join(itemPath, "S01.11.15 Theatre.md"), []byte(jdexContent), 0644); err != nil {
+		t.Fatalf("failed to create JDex: %v", err)
 	}
 
 	cleanup := func() {
@@ -533,7 +596,7 @@ Theatre collection.
 
 // ArchiveItem tests
 
-func TestArchiveItem_MovesToArchiveCategory(t *testing.T) {
+func TestArchiveItem_MovesToArchiveFolder(t *testing.T) {
 	vaultPath, cleanup := setupArchiveTestVault(t)
 	defer cleanup()
 
@@ -545,14 +608,13 @@ func TestArchiveItem_MovesToArchiveCategory(t *testing.T) {
 		t.Fatalf("ArchiveItem failed: %v", err)
 	}
 
-	// Verify item moved to archive category (S01.19)
-	if archivedItem.CategoryID != "S01.19" {
-		t.Errorf("expected CategoryID S01.19, got %s", archivedItem.CategoryID)
+	// Verify item loses its ID after archiving
+	if archivedItem.ID != "" {
+		t.Errorf("expected empty ID after archiving, got %s", archivedItem.ID)
 	}
 
-	// Verify item got a new ID in the archive category
-	if !strings.HasPrefix(archivedItem.ID, "S01.19.") {
-		t.Errorf("expected ID to start with S01.19., got %s", archivedItem.ID)
+	if archivedItem.CategoryID != "S01.11" {
+		t.Errorf("expected CategoryID S01.11, got %s", archivedItem.CategoryID)
 	}
 
 	// Verify item name is preserved
@@ -560,20 +622,26 @@ func TestArchiveItem_MovesToArchiveCategory(t *testing.T) {
 		t.Errorf("expected name Theatre, got %s", archivedItem.Name)
 	}
 
-	// Verify original item no longer exists
-	_, err = repo.GetPath("S01.11.15")
-	if err == nil {
-		t.Error("expected original item to be deleted, but it still exists")
+	// Verify item is now inside the archive folder with [Archived] prefix
+	archivePath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.11 Entertainment", "S01.11.09 Archive for S01.11")
+	expectedPath := filepath.Join(archivePath, "[Archived] Theatre")
+	if archivedItem.Path != expectedPath {
+		t.Errorf("expected path %s, got %s", expectedPath, archivedItem.Path)
 	}
 
-	// Verify new item exists
-	_, err = repo.GetPath(archivedItem.ID)
-	if err != nil {
-		t.Errorf("archived item not found at new location: %v", err)
+	// Verify item folder exists at new location
+	if _, err := os.Stat(archivedItem.Path); os.IsNotExist(err) {
+		t.Errorf("archived item folder not found at %s", archivedItem.Path)
+	}
+
+	// Verify original location no longer exists
+	originalPath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.11 Entertainment", "S01.11.15 Theatre")
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Error("expected original item location to be gone, but it still exists")
 	}
 }
 
-func TestArchiveItem_UpdatesREADME(t *testing.T) {
+func TestArchiveItem_UpdatesJDexContent(t *testing.T) {
 	vaultPath, cleanup := setupArchiveTestVault(t)
 	defer cleanup()
 
@@ -584,44 +652,71 @@ func TestArchiveItem_UpdatesREADME(t *testing.T) {
 		t.Fatalf("ArchiveItem failed: %v", err)
 	}
 
-	// Read the JDex file and verify it was updated
+	// Verify JDex file was renamed to "[Archived] Theatre.md"
+	expectedJDexPath := filepath.Join(archivedItem.Path, "[Archived] Theatre.md")
+	if archivedItem.JDexPath != expectedJDexPath {
+		t.Errorf("expected JDex path %s, got %s", expectedJDexPath, archivedItem.JDexPath)
+	}
+
+	// Read the JDex file
 	content, err := os.ReadFile(archivedItem.JDexPath)
 	if err != nil {
 		t.Fatalf("failed to read JDex: %v", err)
 	}
 
-	// Verify old ID is replaced with new ID
+	// Verify ID was removed from content
 	if strings.Contains(string(content), "S01.11.15") {
-		t.Error("README still contains old ID S01.11.15")
+		t.Error("JDex should NOT contain original ID S01.11.15 after archiving")
 	}
-	if !strings.Contains(string(content), archivedItem.ID) {
-		t.Errorf("README does not contain new ID %s", archivedItem.ID)
+
+	// Verify description is still present
+	if !strings.Contains(string(content), "Theatre") {
+		t.Error("JDex should still contain Theatre description")
 	}
 }
 
-func TestArchiveItem_AssignsNextAvailableID(t *testing.T) {
+func TestArchiveItem_MultipleItemsCanBeArchived(t *testing.T) {
 	vaultPath, cleanup := setupArchiveTestVault(t)
 	defer cleanup()
 
-	// Create an existing item in the archive category
-	archiveItemPath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.19 Archive", "S01.19.11 OldArchive")
-	if err := os.MkdirAll(archiveItemPath, 0755); err != nil {
-		t.Fatalf("failed to create existing archive item: %v", err)
+	// Create another item to archive
+	categoryPath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.11 Entertainment")
+	item2Path := filepath.Join(categoryPath, "S01.11.16 Movies")
+	if err := os.MkdirAll(item2Path, 0755); err != nil {
+		t.Fatalf("failed to create second item: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(archiveItemPath, "README.md"), []byte("# Old"), 0644); err != nil {
-		t.Fatalf("failed to create README: %v", err)
+	if err := os.WriteFile(filepath.Join(item2Path, "S01.11.16 Movies.md"), []byte("# S01.11.16 Movies"), 0644); err != nil {
+		t.Fatalf("failed to create JDex: %v", err)
 	}
 
 	repo := NewRepository(vaultPath)
 
-	archivedItem, err := repo.ArchiveItem("S01.11.15")
+	// Archive both items
+	archivedItem1, err := repo.ArchiveItem("S01.11.15")
 	if err != nil {
-		t.Fatalf("ArchiveItem failed: %v", err)
+		t.Fatalf("ArchiveItem (first) failed: %v", err)
 	}
 
-	// Should get S01.19.12 since S01.19.11 is taken
-	if archivedItem.ID != "S01.19.12" {
-		t.Errorf("expected ID S01.19.12, got %s", archivedItem.ID)
+	archivedItem2, err := repo.ArchiveItem("S01.11.16")
+	if err != nil {
+		t.Fatalf("ArchiveItem (second) failed: %v", err)
+	}
+
+	// Both items should be in the archive folder with [Archived] prefix
+	archivePath := filepath.Join(categoryPath, "S01.11.09 Archive for S01.11")
+	if _, err := os.Stat(filepath.Join(archivePath, "[Archived] Theatre")); os.IsNotExist(err) {
+		t.Error("first archived item not found in archive folder")
+	}
+	if _, err := os.Stat(filepath.Join(archivePath, "[Archived] Movies")); os.IsNotExist(err) {
+		t.Error("second archived item not found in archive folder")
+	}
+
+	// Items lose their IDs after archiving
+	if archivedItem1.ID != "" {
+		t.Errorf("expected first item to have no ID, got %s", archivedItem1.ID)
+	}
+	if archivedItem2.ID != "" {
+		t.Errorf("expected second item to have no ID, got %s", archivedItem2.ID)
 	}
 }
 
@@ -644,35 +739,27 @@ func TestArchiveItem_FailsForNonItem(t *testing.T) {
 	}
 }
 
-func TestArchiveItem_FailsIfAlreadyInArchive(t *testing.T) {
+func TestArchiveItem_FailsIfAlreadyArchiveItem(t *testing.T) {
 	vaultPath, cleanup := setupArchiveTestVault(t)
 	defer cleanup()
 
-	// Create an item already in the archive category
-	archiveItemPath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.19 Archive", "S01.19.11 AlreadyArchived")
-	if err := os.MkdirAll(archiveItemPath, 0755); err != nil {
-		t.Fatalf("failed to create archive item: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(archiveItemPath, "README.md"), []byte("# Old"), 0644); err != nil {
-		t.Fatalf("failed to create README: %v", err)
-	}
-
 	repo := NewRepository(vaultPath)
 
-	_, err := repo.ArchiveItem("S01.19.11")
+	// Try to archive the .09 Archive item itself (should fail)
+	_, err := repo.ArchiveItem("S01.11.09")
 	if err == nil {
-		t.Error("expected error when archiving item already in archive, got nil")
+		t.Error("expected error when archiving an archive item (.09), got nil")
 	}
 }
 
-func TestArchiveItem_FailsIfArchiveCategoryMissing(t *testing.T) {
+func TestArchiveItem_FailsIfArchiveItemMissing(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "libraio-archive-no-archive-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create vault without archive category
+	// Create vault without .09 Archive item
 	scopePath := filepath.Join(tmpDir, "S01 Personal")
 	os.MkdirAll(scopePath, 0755)
 	areaPath := filepath.Join(scopePath, "S01.10-19 Lifestyle")
@@ -687,13 +774,13 @@ func TestArchiveItem_FailsIfArchiveCategoryMissing(t *testing.T) {
 
 	_, err = repo.ArchiveItem("S01.11.15")
 	if err == nil {
-		t.Error("expected error when archive category is missing, got nil")
+		t.Error("expected error when .09 Archive item is missing, got nil")
 	}
 }
 
 // ArchiveCategory tests
 
-func TestArchiveCategory_MovesAllItemsToArchive(t *testing.T) {
+func TestArchiveCategory_MovesAllItemsToArchiveFolder(t *testing.T) {
 	vaultPath, cleanup := setupArchiveTestVault(t)
 	defer cleanup()
 
@@ -720,17 +807,25 @@ func TestArchiveCategory_MovesAllItemsToArchive(t *testing.T) {
 		t.Errorf("expected 3 archived items, got %d", len(archivedItems))
 	}
 
-	// All items should be in archive category now
+	// All items should be in the .09 Archive folder
+	archivePath := filepath.Join(categoryPath, "S01.11.09 Archive for S01.11")
 	for _, item := range archivedItems {
-		if item.CategoryID != "S01.19" {
-			t.Errorf("expected item %s to be in S01.19, got %s", item.ID, item.CategoryID)
+		// Items keep original category ID
+		if item.CategoryID != "S01.11" {
+			t.Errorf("expected item %s to have CategoryID S01.11, got %s", item.ID, item.CategoryID)
+		}
+		// Items should be inside the archive folder
+		if _, err := os.Stat(item.Path); os.IsNotExist(err) {
+			t.Errorf("archived item not found at %s", item.Path)
+		}
+		if !strings.HasPrefix(item.Path, archivePath) {
+			t.Errorf("expected item path to be under archive, got %s", item.Path)
 		}
 	}
 
-	// Original category should be deleted
-	_, err = repo.GetPath("S01.11")
-	if err == nil {
-		t.Error("expected original category to be deleted, but it still exists")
+	// Category should still exist (NOT deleted)
+	if _, err := os.Stat(categoryPath); os.IsNotExist(err) {
+		t.Error("expected category to still exist after archiving")
 	}
 }
 
@@ -738,10 +833,14 @@ func TestArchiveCategory_SkipsStandardZeros(t *testing.T) {
 	vaultPath, cleanup := setupArchiveTestVault(t)
 	defer cleanup()
 
-	// Create standard zero items (these should be skipped)
+	// Create additional standard zero items (these should be skipped)
+	// Note: .09 Archive already exists from setup
 	categoryPath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.11 Entertainment")
 
 	for _, sz := range domain.StandardZeros {
+		if sz.Number == 9 {
+			continue // .09 Archive already exists
+		}
 		szPath := filepath.Join(categoryPath, fmt.Sprintf("S01.11.%02d %s", sz.Number, sz.Name))
 		os.MkdirAll(szPath, 0755)
 		os.WriteFile(filepath.Join(szPath, "README.md"), []byte(fmt.Sprintf("# %s", sz.Name)), 0644)
@@ -757,6 +856,11 @@ func TestArchiveCategory_SkipsStandardZeros(t *testing.T) {
 	// Should only archive 1 item (S01.11.15 Theatre), not the standard zeros
 	if len(archivedItems) != 1 {
 		t.Errorf("expected 1 archived item (standard zeros should be skipped), got %d", len(archivedItems))
+	}
+
+	// Verify the archived item is S01.11.15 Theatre
+	if len(archivedItems) > 0 && archivedItems[0].Name != "Theatre" {
+		t.Errorf("expected archived item to be Theatre, got %s", archivedItems[0].Name)
 	}
 }
 
@@ -779,16 +883,30 @@ func TestArchiveCategory_FailsForNonCategory(t *testing.T) {
 	}
 }
 
-func TestArchiveCategory_FailsForArchiveCategory(t *testing.T) {
-	vaultPath, cleanup := setupArchiveTestVault(t)
-	defer cleanup()
+func TestArchiveCategory_FailsIfArchiveItemMissing(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "libraio-archive-no-archive-item-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
 
-	repo := NewRepository(vaultPath)
+	// Create vault without .09 Archive item
+	scopePath := filepath.Join(tmpDir, "S01 Personal")
+	os.MkdirAll(scopePath, 0755)
+	areaPath := filepath.Join(scopePath, "S01.10-19 Lifestyle")
+	os.MkdirAll(areaPath, 0755)
+	categoryPath := filepath.Join(areaPath, "S01.11 Entertainment")
+	os.MkdirAll(categoryPath, 0755)
+	itemPath := filepath.Join(categoryPath, "S01.11.15 Theatre")
+	os.MkdirAll(itemPath, 0755)
+	os.WriteFile(filepath.Join(itemPath, "README.md"), []byte("# Theatre"), 0644)
 
-	// Try to archive the archive category itself (should fail)
-	_, err := repo.ArchiveCategory("S01.19")
+	repo := NewRepository(tmpDir)
+
+	// Try to archive category without .09 Archive item (should fail)
+	_, err = repo.ArchiveCategory("S01.11")
 	if err == nil {
-		t.Error("expected error when archiving the archive category, got nil")
+		t.Error("expected error when .09 Archive item is missing, got nil")
 	}
 }
 
@@ -822,6 +940,175 @@ func TestArchiveCategory_PreservesItemDescriptions(t *testing.T) {
 	}
 }
 
+// Tests for new category-to-area archive functionality
+
+func setupCategoryToAreaArchiveVault(t *testing.T) (string, func()) {
+	t.Helper()
+
+	tmpDir, err := os.MkdirTemp("", "libraio-cat-area-archive-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+
+	// Create scope
+	scopePath := filepath.Join(tmpDir, "S01 Personal")
+	os.MkdirAll(scopePath, 0755)
+
+	// Create area
+	areaPath := filepath.Join(scopePath, "S01.10-19 Lifestyle")
+	os.MkdirAll(areaPath, 0755)
+
+	// Create area management category with archive (.10)
+	mgmtCatPath := filepath.Join(areaPath, "S01.10 Management for S01.10-19")
+	os.MkdirAll(mgmtCatPath, 0755)
+
+	// Create area-level archive item (.10.09)
+	areaArchivePath := filepath.Join(mgmtCatPath, "S01.10.09 Archive for S01.10-19")
+	os.MkdirAll(areaArchivePath, 0755)
+	os.WriteFile(filepath.Join(areaArchivePath, "S01.10.09 Archive for S01.10-19.md"),
+		[]byte("# S01.10.09 Archive for S01.10-19\n\nArea archive."), 0644)
+
+	// Create category to be archived
+	categoryPath := filepath.Join(areaPath, "S01.11 Entertainment")
+	os.MkdirAll(categoryPath, 0755)
+
+	// Create category-level archive item (.11.09)
+	catArchivePath := filepath.Join(categoryPath, "S01.11.09 Archive for S01.11")
+	os.MkdirAll(catArchivePath, 0755)
+	os.WriteFile(filepath.Join(catArchivePath, "S01.11.09 Archive for S01.11.md"),
+		[]byte("# S01.11.09 Archive for S01.11\n\nCategory archive."), 0644)
+
+	// Create item in category
+	itemPath := filepath.Join(categoryPath, "S01.11.15 Theatre")
+	os.MkdirAll(itemPath, 0755)
+	os.WriteFile(filepath.Join(itemPath, "S01.11.15 Theatre.md"),
+		[]byte("# S01.11.15 Theatre\n\nTheatre content."), 0644)
+
+	cleanup := func() {
+		os.RemoveAll(tmpDir)
+	}
+
+	return tmpDir, cleanup
+}
+
+func TestArchiveCategoryToArea_MovesToAreaArchive(t *testing.T) {
+	vaultPath, cleanup := setupCategoryToAreaArchiveVault(t)
+	defer cleanup()
+
+	repo := NewRepository(vaultPath)
+
+	// Archive category S01.11 to area archive S01.10.09
+	archivedCat, err := repo.ArchiveCategoryToArea("S01.11")
+	if err != nil {
+		t.Fatalf("ArchiveCategoryToArea failed: %v", err)
+	}
+
+	// Verify category folder now exists inside area archive
+	areaArchivePath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle",
+		"S01.10 Management for S01.10-19", "S01.10.09 Archive for S01.10-19")
+	expectedCatPath := filepath.Join(areaArchivePath, "S01.11 Entertainment")
+
+	if _, err := os.Stat(expectedCatPath); os.IsNotExist(err) {
+		t.Errorf("category folder not found in area archive at %s", expectedCatPath)
+	}
+
+	// Verify original category location no longer exists
+	originalPath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.11 Entertainment")
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Error("expected original category location to be gone")
+	}
+
+	// Verify returned category info
+	if archivedCat.ID != "S01.11" {
+		t.Errorf("expected category ID S01.11, got %s", archivedCat.ID)
+	}
+	if archivedCat.Name != "Entertainment" {
+		t.Errorf("expected category name Entertainment, got %s", archivedCat.Name)
+	}
+}
+
+func TestArchiveCategoryToArea_PreservesContents(t *testing.T) {
+	vaultPath, cleanup := setupCategoryToAreaArchiveVault(t)
+	defer cleanup()
+
+	repo := NewRepository(vaultPath)
+
+	_, err := repo.ArchiveCategoryToArea("S01.11")
+	if err != nil {
+		t.Fatalf("ArchiveCategoryToArea failed: %v", err)
+	}
+
+	// Verify item inside category was preserved
+	areaArchivePath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle",
+		"S01.10 Management for S01.10-19", "S01.10.09 Archive for S01.10-19")
+	itemPath := filepath.Join(areaArchivePath, "S01.11 Entertainment", "S01.11.15 Theatre")
+
+	if _, err := os.Stat(itemPath); os.IsNotExist(err) {
+		t.Errorf("item not preserved inside archived category at %s", itemPath)
+	}
+
+	// Verify item JDex file exists
+	jdexPath := filepath.Join(itemPath, "S01.11.15 Theatre.md")
+	if _, err := os.Stat(jdexPath); os.IsNotExist(err) {
+		t.Error("item JDex file not preserved")
+	}
+}
+
+func TestArchiveCategoryToArea_FailsForNonCategory(t *testing.T) {
+	vaultPath, cleanup := setupCategoryToAreaArchiveVault(t)
+	defer cleanup()
+
+	repo := NewRepository(vaultPath)
+
+	// Try to archive an item (should fail)
+	_, err := repo.ArchiveCategoryToArea("S01.11.15")
+	if err == nil {
+		t.Error("expected error when archiving an item, got nil")
+	}
+
+	// Try to archive an area (should fail)
+	_, err = repo.ArchiveCategoryToArea("S01.10-19")
+	if err == nil {
+		t.Error("expected error when archiving an area, got nil")
+	}
+}
+
+func TestArchiveCategoryToArea_FailsIfAreaArchiveMissing(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "libraio-no-area-archive-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create structure without area archive
+	scopePath := filepath.Join(tmpDir, "S01 Personal")
+	os.MkdirAll(scopePath, 0755)
+	areaPath := filepath.Join(scopePath, "S01.10-19 Lifestyle")
+	os.MkdirAll(areaPath, 0755)
+	categoryPath := filepath.Join(areaPath, "S01.11 Entertainment")
+	os.MkdirAll(categoryPath, 0755)
+
+	repo := NewRepository(tmpDir)
+
+	_, err = repo.ArchiveCategoryToArea("S01.11")
+	if err == nil {
+		t.Error("expected error when area archive is missing, got nil")
+	}
+}
+
+func TestArchiveCategoryToArea_FailsForManagementCategory(t *testing.T) {
+	vaultPath, cleanup := setupCategoryToAreaArchiveVault(t)
+	defer cleanup()
+
+	repo := NewRepository(vaultPath)
+
+	// Try to archive the management category itself (should fail)
+	_, err := repo.ArchiveCategoryToArea("S01.10")
+	if err == nil {
+		t.Error("expected error when archiving management category, got nil")
+	}
+}
+
 // Obsidian link update tests
 
 func setupLinkTestVault(t *testing.T) (string, func()) {
@@ -844,9 +1131,10 @@ func setupLinkTestVault(t *testing.T) (string, func()) {
 	categoryPath := filepath.Join(areaPath, "S01.11 Entertainment")
 	os.MkdirAll(categoryPath, 0755)
 
-	// Create archive category
-	archiveCategoryPath := filepath.Join(areaPath, "S01.19 Archive")
-	os.MkdirAll(archiveCategoryPath, 0755)
+	// Create category-level archive item (.09 Archive for S01.11)
+	archiveItemPath := filepath.Join(categoryPath, "S01.11.09 Archive for S01.11")
+	os.MkdirAll(archiveItemPath, 0755)
+	os.WriteFile(filepath.Join(archiveItemPath, "S01.11.09 Archive for S01.11.md"), []byte("# Archive for S01.11"), 0644)
 
 	// Create item to be archived
 	itemPath := filepath.Join(categoryPath, "S01.11.15 Theatre")
@@ -886,12 +1174,12 @@ func TestArchiveItem_UpdatesObsidianLinks(t *testing.T) {
 
 	repo := NewRepository(vaultPath)
 
-	archivedItem, err := repo.ArchiveItem("S01.11.15")
+	_, err := repo.ArchiveItem("S01.11.15")
 	if err != nil {
 		t.Fatalf("ArchiveItem failed: %v", err)
 	}
 
-	// Read the linking file and verify links were updated
+	// Read the linking file and verify links were updated to remove ID
 	linkingFilePath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.11 Entertainment", "S01.11.16 Links", "links.md")
 	content, err := os.ReadFile(linkingFilePath)
 	if err != nil {
@@ -900,21 +1188,15 @@ func TestArchiveItem_UpdatesObsidianLinks(t *testing.T) {
 
 	contentStr := string(content)
 
-	// Old links should be replaced
+	// Links should now use [Archived] prefix (ID removed)
 	if strings.Contains(contentStr, "[[S01.11.15 Theatre]]") {
-		t.Error("linking file still contains old [[S01.11.15 Theatre]] link")
+		t.Error("linking file should NOT contain [[S01.11.15 Theatre]] link after archiving")
 	}
 	if strings.Contains(contentStr, "[[S01.11.15]]") {
-		t.Error("linking file still contains old [[S01.11.15]] link")
+		t.Error("linking file should NOT contain [[S01.11.15]] link after archiving")
 	}
-	if strings.Contains(contentStr, "[[S01.11.15|") {
-		t.Error("linking file still contains old [[S01.11.15|...]] link")
-	}
-
-	// New links should be present
-	expectedLink := fmt.Sprintf("[[%s Theatre]]", archivedItem.ID)
-	if !strings.Contains(contentStr, expectedLink) {
-		t.Errorf("linking file does not contain expected link %s", expectedLink)
+	if !strings.Contains(contentStr, "[[[Archived] Theatre]]") {
+		t.Error("linking file should contain [[[Archived] Theatre]] link after archiving")
 	}
 
 	// Check the root-level notes file too
@@ -924,11 +1206,14 @@ func TestArchiveItem_UpdatesObsidianLinks(t *testing.T) {
 	}
 
 	if strings.Contains(string(notesContent), "[[S01.11.15 Theatre]]") {
-		t.Error("notes.md still contains old link")
+		t.Error("notes.md should NOT contain original link after archiving")
+	}
+	if !strings.Contains(string(notesContent), "[[[Archived] Theatre]]") {
+		t.Error("notes.md should contain [[[Archived] Theatre]] link after archiving")
 	}
 }
 
-func TestUpdateObsidianLinks_HandlesVariousLinkFormats(t *testing.T) {
+func TestArchiveItem_UpdatesLinksWithVariousFormats(t *testing.T) {
 	vaultPath, cleanup := setupLinkTestVault(t)
 	defer cleanup()
 
@@ -949,26 +1234,35 @@ func TestUpdateObsidianLinks_HandlesVariousLinkFormats(t *testing.T) {
 
 	repo := NewRepository(vaultPath)
 
-	archivedItem, err := repo.ArchiveItem("S01.11.15")
+	_, err := repo.ArchiveItem("S01.11.15")
 	if err != nil {
 		t.Fatalf("ArchiveItem failed: %v", err)
 	}
 
-	// Read the updated file
+	// Read the file (links should be updated to remove ID)
 	updatedContent, err := os.ReadFile(testFilePath)
 	if err != nil {
-		t.Fatalf("failed to read updated file: %v", err)
+		t.Fatalf("failed to read file: %v", err)
 	}
 
 	updatedStr := string(updatedContent)
 
-	// Verify no old links remain
-	if strings.Contains(updatedStr, "S01.11.15") {
-		t.Errorf("file still contains old ID S01.11.15:\n%s", updatedStr)
+	// Verify links were updated to use [Archived] prefix
+	if strings.Contains(updatedStr, "[[S01.11.15 Theatre]]") {
+		t.Errorf("file should NOT contain [[S01.11.15 Theatre]] links after archiving")
+	}
+	if strings.Contains(updatedStr, "[[S01.11.15]]") {
+		t.Errorf("file should NOT contain [[S01.11.15]] links after archiving")
 	}
 
-	// Verify new ID is present
-	if !strings.Contains(updatedStr, archivedItem.ID) {
-		t.Errorf("file does not contain new ID %s:\n%s", archivedItem.ID, updatedStr)
+	// Verify updated links with [Archived] prefix
+	if !strings.Contains(updatedStr, "[[[Archived] Theatre]]") {
+		t.Errorf("file should contain [[[Archived] Theatre]] links after archiving")
+	}
+	if !strings.Contains(updatedStr, "[[[Archived] Theatre|Custom Title]]") {
+		t.Errorf("file should contain [[[Archived] Theatre|Custom Title]] link after archiving")
+	}
+	if !strings.Contains(updatedStr, "[[[Archived] Theatre|Another Title]]") {
+		t.Errorf("file should contain [[[Archived] Theatre|Another Title]] link after archiving")
 	}
 }

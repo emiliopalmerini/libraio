@@ -16,6 +16,76 @@ type Repository struct {
 	vaultPath string
 }
 
+// LinkReplacement defines a single link transformation for vault-wide updates
+type LinkReplacement struct {
+	Old     string // Pattern to find (literal string or regex if IsRegex is true)
+	New     string // Replacement string
+	IsRegex bool   // If true, Old is treated as a regex pattern
+}
+
+// updateJDexFile finds and updates a JDex file (or legacy README.md) in the given directory.
+// It looks for the old JDex file or README.md, applies the transform function, writes to newJDexPath,
+// and removes the old file if different from the new path.
+func updateJDexFile(dstPath, oldFolderName, newJDexPath string, transform func(string) string) {
+	oldJDexPath := filepath.Join(dstPath, domain.JDexFileName(oldFolderName))
+	legacyReadmePath := filepath.Join(dstPath, "README.md")
+
+	var sourcePath string
+	if _, err := os.Stat(oldJDexPath); err == nil {
+		sourcePath = oldJDexPath
+	} else if _, err := os.Stat(legacyReadmePath); err == nil {
+		sourcePath = legacyReadmePath
+	}
+
+	if sourcePath == "" {
+		return
+	}
+
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return
+	}
+
+	updated := transform(string(content))
+	if err := os.WriteFile(newJDexPath, []byte(updated), 0644); err != nil {
+		return
+	}
+
+	if sourcePath != newJDexPath {
+		os.Remove(sourcePath)
+	}
+}
+
+// nextAvailableItemID returns the next available item ID in a category
+func (r *Repository) nextAvailableItemID(categoryID string) (string, error) {
+	existing, err := r.ListItems(categoryID)
+	if err != nil {
+		return "", err
+	}
+
+	var existingIDs []string
+	for _, item := range existing {
+		existingIDs = append(existingIDs, item.ID)
+	}
+
+	return domain.NextItemID(categoryID, existingIDs)
+}
+
+// nextAvailableCategoryID returns the next available category ID in an area
+func (r *Repository) nextAvailableCategoryID(areaID string) (string, error) {
+	existing, err := r.ListCategories(areaID)
+	if err != nil {
+		return "", err
+	}
+
+	var existingIDs []string
+	for _, cat := range existing {
+		existingIDs = append(existingIDs, cat.ID)
+	}
+
+	return domain.NextCategoryID(areaID, existingIDs)
+}
+
 // NewRepository creates a new filesystem repository
 func NewRepository(vaultPath string) *Repository {
 	// Expand ~ to home directory
@@ -120,9 +190,6 @@ func (r *Repository) ListCategories(areaID string) ([]domain.Category, error) {
 	var categories []domain.Category
 	categoryRegex := regexp.MustCompile(`^(S0[0-9]\.[0-9][0-9]) (.+)$`)
 
-	// Determine archive number for this area
-	archiveID, _ := domain.ArchiveCategory(areaID)
-
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -134,11 +201,10 @@ func (r *Repository) ListCategories(areaID string) ([]domain.Category, error) {
 		}
 
 		categories = append(categories, domain.Category{
-			ID:        matches[1],
-			Name:      matches[2],
-			Path:      filepath.Join(areaPath, entry.Name()),
-			AreaID:    areaID,
-			IsArchive: matches[1] == archiveID,
+			ID:     matches[1],
+			Name:   matches[2],
+			Path:   filepath.Join(areaPath, entry.Name()),
+			AreaID: areaID,
 		})
 	}
 
@@ -199,18 +265,7 @@ func (r *Repository) CreateCategory(areaID, description string) (*domain.Categor
 		return nil, err
 	}
 
-	// Get existing categories to find next ID
-	existing, err := r.ListCategories(areaID)
-	if err != nil {
-		return nil, err
-	}
-
-	var existingIDs []string
-	for _, cat := range existing {
-		existingIDs = append(existingIDs, cat.ID)
-	}
-
-	newID, err := domain.NextCategoryID(areaID, existingIDs)
+	newID, err := r.nextAvailableCategoryID(areaID)
 	if err != nil {
 		return nil, err
 	}
@@ -266,18 +321,7 @@ func (r *Repository) CreateItem(categoryID, description string) (*domain.Item, e
 		return nil, err
 	}
 
-	// Get existing items to find next ID
-	existing, err := r.ListItems(categoryID)
-	if err != nil {
-		return nil, err
-	}
-
-	var existingIDs []string
-	for _, item := range existing {
-		existingIDs = append(existingIDs, item.ID)
-	}
-
-	newID, err := domain.NextItemID(categoryID, existingIDs)
+	newID, err := r.nextAvailableItemID(categoryID)
 	if err != nil {
 		return nil, err
 	}
@@ -337,16 +381,7 @@ func (r *Repository) MoveItem(srcItemID, dstCategoryID string) (*domain.Item, er
 		return nil, fmt.Errorf("destination category not found: %w", err)
 	}
 
-	// Get next available ID in destination
-	existing, err := r.ListItems(dstCategoryID)
-	if err != nil {
-		return nil, err
-	}
-	var existingIDs []string
-	for _, item := range existing {
-		existingIDs = append(existingIDs, item.ID)
-	}
-	newID, err := domain.NextItemID(dstCategoryID, existingIDs)
+	newID, err := r.nextAvailableItemID(dstCategoryID)
 	if err != nil {
 		return nil, err
 	}
@@ -360,32 +395,12 @@ func (r *Repository) MoveItem(srcItemID, dstCategoryID string) (*domain.Item, er
 		return nil, fmt.Errorf("failed to move item: %w", err)
 	}
 
-	// Find and update JDex file (check for new-style or legacy README.md)
-	newJDexPath := filepath.Join(dstPath, domain.JDexFileName(newFolderName))
+	// Update JDex file
 	oldFolderName := filepath.Base(srcPath)
-	oldJDexPath := filepath.Join(dstPath, domain.JDexFileName(oldFolderName))
-	legacyReadmePath := filepath.Join(dstPath, "README.md")
-
-	// Try to find existing JDex file and update/rename it
-	var sourcePath string
-	if _, err := os.Stat(oldJDexPath); err == nil {
-		sourcePath = oldJDexPath
-	} else if _, err := os.Stat(legacyReadmePath); err == nil {
-		sourcePath = legacyReadmePath
-	}
-
-	if sourcePath != "" {
-		if content, err := os.ReadFile(sourcePath); err == nil {
-			updated := domain.UpdateReadmeID(string(content), srcItemID, newID, description)
-			// Write to new path
-			if err := os.WriteFile(newJDexPath, []byte(updated), 0644); err == nil {
-				// Remove old file if different from new
-				if sourcePath != newJDexPath {
-					os.Remove(sourcePath)
-				}
-			}
-		}
-	}
+	newJDexPath := filepath.Join(dstPath, domain.JDexFileName(newFolderName))
+	updateJDexFile(dstPath, oldFolderName, newJDexPath, func(content string) string {
+		return domain.UpdateReadmeID(content, srcItemID, newID, description)
+	})
 
 	return &domain.Item{
 		ID:         newID,
@@ -427,16 +442,7 @@ func (r *Repository) MoveCategory(srcCategoryID, dstAreaID string) (*domain.Cate
 		return nil, fmt.Errorf("destination area not found: %w", err)
 	}
 
-	// Get next available ID in destination
-	existing, err := r.ListCategories(dstAreaID)
-	if err != nil {
-		return nil, err
-	}
-	var existingIDs []string
-	for _, cat := range existing {
-		existingIDs = append(existingIDs, cat.ID)
-	}
-	newID, err := domain.NextCategoryID(dstAreaID, existingIDs)
+	newID, err := r.nextAvailableCategoryID(dstAreaID)
 	if err != nil {
 		return nil, err
 	}
@@ -502,114 +508,96 @@ func (r *Repository) updateItemIDsInCategory(categoryPath, _, newCategoryID stri
 			continue
 		}
 
-		// Find and update JDex file (check for new-style or legacy README.md)
+		// Update JDex file
 		oldFolderName := entry.Name()
 		newJDexPath := filepath.Join(newPath, domain.JDexFileName(newFolderName))
-		oldJDexPath := filepath.Join(newPath, domain.JDexFileName(oldFolderName))
-		legacyReadmePath := filepath.Join(newPath, "README.md")
-
-		var sourcePath string
-		if _, err := os.Stat(oldJDexPath); err == nil {
-			sourcePath = oldJDexPath
-		} else if _, err := os.Stat(legacyReadmePath); err == nil {
-			sourcePath = legacyReadmePath
-		}
-
-		if sourcePath != "" {
-			if content, err := os.ReadFile(sourcePath); err == nil {
-				updated := domain.UpdateReadmeID(string(content), oldItemID, newItemID, description)
-				if err := os.WriteFile(newJDexPath, []byte(updated), 0644); err == nil {
-					if sourcePath != newJDexPath {
-						os.Remove(sourcePath)
-					}
-				}
-			}
-		}
+		updateJDexFile(newPath, oldFolderName, newJDexPath, func(content string) string {
+			return domain.UpdateReadmeID(content, oldItemID, newItemID, description)
+		})
 	}
 }
 
-// ArchiveItem moves an item to the archive category of its area
+// ArchiveItem moves an item to the category's .09 Archive folder
 func (r *Repository) ArchiveItem(srcItemID string) (*domain.Item, error) {
 	// Validate source is an item
 	if domain.ParseIDType(srcItemID) != domain.IDTypeItem {
 		return nil, fmt.Errorf("source must be an item, got: %s", srcItemID)
 	}
 
-	// Get the item's category and area
+	// Check if already an archive item
+	if domain.IsArchiveItem(srcItemID) {
+		return nil, fmt.Errorf("item %s is already an archive item", srcItemID)
+	}
+
+	// Get the item's category
 	srcCategoryID, err := domain.ParseCategory(srcItemID)
 	if err != nil {
 		return nil, err
 	}
 
-	areaID, err := domain.ParseArea(srcItemID)
+	// Get archive item ID for this category (.09)
+	archiveItemID, err := domain.ArchiveItemID(srcCategoryID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get archive category ID for this area
-	archiveCategoryID, err := domain.ArchiveCategory(areaID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if already in archive
-	if srcCategoryID == archiveCategoryID {
-		return nil, fmt.Errorf("item %s is already in archive category %s", srcItemID, archiveCategoryID)
-	}
-
-	// Verify archive category exists
-	_, err = r.findCategoryPath(archiveCategoryID)
-	if err != nil {
-		return nil, fmt.Errorf("archive category %s not found: %w", archiveCategoryID, err)
-	}
-
-	// Get item description for link updates
+	// Get source path
 	srcPath, err := r.GetPath(srcItemID)
 	if err != nil {
 		return nil, fmt.Errorf("source item not found: %w", err)
 	}
 	description := domain.ExtractDescription(filepath.Base(srcPath))
+	folderName := filepath.Base(srcPath)
 
-	// Move the item to archive category
-	archivedItem, err := r.MoveItem(srcItemID, archiveCategoryID)
+	// Get archive item path
+	archivePath, err := r.findItemPath(archiveItemID)
 	if err != nil {
+		return nil, fmt.Errorf("archive item %s not found: %w", archiveItemID, err)
+	}
+
+	// Archived items lose their ID - folder is renamed with [Archived] prefix
+	archivedFolderName := "[Archived] " + description
+	dstPath := filepath.Join(archivePath, archivedFolderName)
+	if err := os.Rename(srcPath, dstPath); err != nil {
 		return nil, fmt.Errorf("failed to move item to archive: %w", err)
 	}
 
-	// Update Obsidian links throughout the vault
-	r.updateObsidianLinks(srcItemID, archivedItem.ID, description)
+	// Update JDex file (rename from "S01.11.15 Theatre.md" to "[Archived] Theatre.md")
+	newJDexPath := filepath.Join(dstPath, archivedFolderName+".md")
+	updateJDexFile(dstPath, folderName, newJDexPath, func(content string) string {
+		return domain.UpdateReadmeForArchive(content, srcItemID, description)
+	})
 
-	return archivedItem, nil
+	// Update Obsidian links throughout the vault
+	r.updateObsidianLinksForArchive(srcItemID, description)
+
+	// Return the archived item (ID is now empty since it's archived)
+	return &domain.Item{
+		ID:         "", // No ID after archiving
+		Name:       description,
+		Path:       dstPath,
+		CategoryID: srcCategoryID,
+		JDexPath:   newJDexPath,
+	}, nil
 }
 
-// ArchiveCategory moves all non-standard-zero items to the archive category and deletes the source category
+// ArchiveCategory moves all non-standard-zero items to the category's .09 Archive folder
 func (r *Repository) ArchiveCategory(srcCategoryID string) ([]*domain.Item, error) {
 	// Validate source is a category
 	if domain.ParseIDType(srcCategoryID) != domain.IDTypeCategory {
 		return nil, fmt.Errorf("source must be a category, got: %s", srcCategoryID)
 	}
 
-	// Get area ID
-	areaID, err := domain.ParseArea(srcCategoryID)
+	// Get archive item ID (.09) for this category
+	archiveItemID, err := domain.ArchiveItemID(srcCategoryID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get archive category ID
-	archiveCategoryID, err := domain.ArchiveCategory(areaID)
+	// Verify archive item exists
+	_, err = r.findItemPath(archiveItemID)
 	if err != nil {
-		return nil, err
-	}
-
-	// Check if trying to archive the archive category itself
-	if srcCategoryID == archiveCategoryID {
-		return nil, fmt.Errorf("cannot archive the archive category %s", srcCategoryID)
-	}
-
-	// Verify archive category exists
-	_, err = r.findCategoryPath(archiveCategoryID)
-	if err != nil {
-		return nil, fmt.Errorf("archive category %s not found: %w", archiveCategoryID, err)
+		return nil, fmt.Errorf("archive item %s not found: %w", archiveItemID, err)
 	}
 
 	// Get all items in the category
@@ -640,33 +628,73 @@ func (r *Repository) ArchiveCategory(srcCategoryID string) ([]*domain.Item, erro
 		archivedItems = append(archivedItems, archivedItem)
 	}
 
-	// Delete the source category (now empty of regular items)
-	if err := r.Delete(srcCategoryID); err != nil {
-		return archivedItems, fmt.Errorf("archived items but failed to delete category: %w", err)
-	}
-
 	return archivedItems, nil
 }
 
-// updateObsidianLinks updates all wiki links in the vault from oldID to newID
-func (r *Repository) updateObsidianLinks(oldID, newID, description string) {
-	// Walk the entire vault looking for markdown files
+// ArchiveCategoryToArea moves a category to the area's .X0.09 Archive folder
+func (r *Repository) ArchiveCategoryToArea(srcCategoryID string) (*domain.Category, error) {
+	// Validate source is a category
+	if domain.ParseIDType(srcCategoryID) != domain.IDTypeCategory {
+		return nil, fmt.Errorf("source must be a category, got: %s", srcCategoryID)
+	}
+
+	// Management categories can't be archived
+	if domain.IsAreaManagementCategory(srcCategoryID) {
+		return nil, fmt.Errorf("cannot archive management category %s", srcCategoryID)
+	}
+
+	// Get the area archive item ID (.X0.09)
+	areaArchiveItemID, err := domain.AreaArchiveItemID(srcCategoryID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get source category path
+	srcPath, err := r.GetPath(srcCategoryID)
+	if err != nil {
+		return nil, fmt.Errorf("source category not found: %w", err)
+	}
+	description := domain.ExtractDescription(filepath.Base(srcPath))
+	folderName := filepath.Base(srcPath)
+
+	// Get area archive item path
+	archivePath, err := r.findItemPath(areaArchiveItemID)
+	if err != nil {
+		return nil, fmt.Errorf("area archive item %s not found: %w", areaArchiveItemID, err)
+	}
+
+	// Move the category folder into the area archive folder
+	dstPath := filepath.Join(archivePath, folderName)
+	if err := os.Rename(srcPath, dstPath); err != nil {
+		return nil, fmt.Errorf("failed to move category to area archive: %w", err)
+	}
+
+	// Update Obsidian links throughout the vault
+	r.updateObsidianLinks(srcCategoryID, srcCategoryID, description)
+
+	return &domain.Category{
+		ID:     srcCategoryID,
+		Name:   description,
+		Path:   dstPath,
+		AreaID: "", // No longer has a direct area parent
+	}, nil
+}
+
+// updateVaultLinks walks the vault and applies link replacements to all markdown files
+func (r *Repository) updateVaultLinks(replacements []LinkReplacement) {
 	filepath.Walk(r.vaultPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // Skip errors
+			return nil
 		}
 
-		// Skip hidden directories
 		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
 			return filepath.SkipDir
 		}
 
-		// Only process markdown files
 		if info.IsDir() || !strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
 			return nil
 		}
 
-		// Read file content
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return nil
@@ -675,36 +703,60 @@ func (r *Repository) updateObsidianLinks(oldID, newID, description string) {
 		contentStr := string(content)
 		originalContent := contentStr
 
-		// Replace various link formats:
-		// [[S01.11.15 Theatre]] -> [[S01.19.11 Theatre]]
-		// [[S01.11.15]] -> [[S01.19.11 Theatre]]
-		// [[S01.11.15|Custom]] -> [[S01.19.11 Theatre|Custom]]
-		// [[S01.11.15 Theatre|Custom]] -> [[S01.19.11 Theatre|Custom]]
+		for _, repl := range replacements {
+			if repl.IsRegex {
+				re := regexp.MustCompile(repl.Old)
+				contentStr = re.ReplaceAllString(contentStr, repl.New)
+			} else {
+				contentStr = strings.ReplaceAll(contentStr, repl.Old, repl.New)
+			}
+		}
 
-		oldFullLink := fmt.Sprintf("[[%s %s]]", oldID, description)
-		newFullLink := fmt.Sprintf("[[%s %s]]", newID, description)
-		contentStr = strings.ReplaceAll(contentStr, oldFullLink, newFullLink)
-
-		// Replace ID-only links: [[S01.11.15]] -> [[S01.19.11 Theatre]]
-		oldIDLink := fmt.Sprintf("[[%s]]", oldID)
-		contentStr = strings.ReplaceAll(contentStr, oldIDLink, newFullLink)
-
-		// Replace aliased links: [[S01.11.15|...]] -> [[S01.19.11 Theatre|...]]
-		// We need to use regex for this
-		oldAliasPattern := regexp.MustCompile(`\[\[` + regexp.QuoteMeta(oldID) + `\|`)
-		contentStr = oldAliasPattern.ReplaceAllString(contentStr, fmt.Sprintf("[[%s %s|", newID, description))
-
-		// Replace full aliased links: [[S01.11.15 Theatre|...]] -> [[S01.19.11 Theatre|...]]
-		oldFullAliasPattern := regexp.MustCompile(`\[\[` + regexp.QuoteMeta(oldID+" "+description) + `\|`)
-		contentStr = oldFullAliasPattern.ReplaceAllString(contentStr, fmt.Sprintf("[[%s %s|", newID, description))
-
-		// Only write if content changed
 		if contentStr != originalContent {
 			os.WriteFile(path, []byte(contentStr), 0644)
 		}
 
 		return nil
 	})
+}
+
+// updateObsidianLinksForArchive updates all wiki links when archiving (adds [Archived] prefix)
+// e.g., [[S01.11.15 Theatre]] -> [[[Archived] Theatre]], [[S01.11.15]] -> [[[Archived] Theatre]]
+func (r *Repository) updateObsidianLinksForArchive(oldID, description string) {
+	archivedName := "[Archived] " + description
+	newLink := fmt.Sprintf("[[%s]]", archivedName)
+
+	replacements := []LinkReplacement{
+		// [[S01.11.15 Theatre]] -> [[[Archived] Theatre]]
+		{Old: fmt.Sprintf("[[%s %s]]", oldID, description), New: newLink},
+		// [[S01.11.15]] -> [[[Archived] Theatre]]
+		{Old: fmt.Sprintf("[[%s]]", oldID), New: newLink},
+		// [[S01.11.15|Custom]] -> [[[Archived] Theatre|Custom]]
+		{Old: `\[\[` + regexp.QuoteMeta(oldID) + `\|`, New: fmt.Sprintf("[[%s|", archivedName), IsRegex: true},
+		// [[S01.11.15 Theatre|Custom]] -> [[[Archived] Theatre|Custom]]
+		{Old: `\[\[` + regexp.QuoteMeta(oldID+" "+description) + `\|`, New: fmt.Sprintf("[[%s|", archivedName), IsRegex: true},
+	}
+
+	r.updateVaultLinks(replacements)
+}
+
+// updateObsidianLinks updates all wiki links in the vault from oldID to newID
+func (r *Repository) updateObsidianLinks(oldID, newID, description string) {
+	newFullLink := fmt.Sprintf("[[%s %s]]", newID, description)
+	newAliasPrefix := fmt.Sprintf("[[%s %s|", newID, description)
+
+	replacements := []LinkReplacement{
+		// [[S01.11.15 Theatre]] -> [[S01.19.11 Theatre]]
+		{Old: fmt.Sprintf("[[%s %s]]", oldID, description), New: newFullLink},
+		// [[S01.11.15]] -> [[S01.19.11 Theatre]]
+		{Old: fmt.Sprintf("[[%s]]", oldID), New: newFullLink},
+		// [[S01.11.15|Custom]] -> [[S01.19.11 Theatre|Custom]]
+		{Old: `\[\[` + regexp.QuoteMeta(oldID) + `\|`, New: newAliasPrefix, IsRegex: true},
+		// [[S01.11.15 Theatre|Custom]] -> [[S01.19.11 Theatre|Custom]]
+		{Old: `\[\[` + regexp.QuoteMeta(oldID+" "+description) + `\|`, New: newAliasPrefix, IsRegex: true},
+	}
+
+	r.updateVaultLinks(replacements)
 }
 
 // Delete removes an item, category, area, or scope by ID

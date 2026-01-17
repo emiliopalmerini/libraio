@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/tui/styles"
-	"libraio/internal/domain"
+	"libraio/internal/application"
 	"libraio/internal/ports"
 )
 
@@ -32,7 +32,7 @@ var DeleteKeys = DeleteKeyMap{
 // DeleteModel is the model for the delete confirmation view
 type DeleteModel struct {
 	repo       ports.VaultRepository
-	targetNode *domain.TreeNode
+	targetNode *application.TreeNode
 	width      int
 	height     int
 }
@@ -45,7 +45,7 @@ func NewDeleteModel(repo ports.VaultRepository) *DeleteModel {
 }
 
 // SetTarget sets the target node for deletion
-func (m *DeleteModel) SetTarget(node *domain.TreeNode) {
+func (m *DeleteModel) SetTarget(node *application.TreeNode) {
 	m.targetNode = node
 }
 
@@ -119,13 +119,13 @@ func (m *DeleteModel) View() string {
 	if m.targetNode != nil {
 		typeStr := ""
 		switch m.targetNode.Type {
-		case domain.IDTypeItem:
+		case application.IDTypeItem:
 			typeStr = "Item"
-		case domain.IDTypeCategory:
+		case application.IDTypeCategory:
 			typeStr = "Category"
-		case domain.IDTypeArea:
+		case application.IDTypeArea:
 			typeStr = "Area"
-		case domain.IDTypeScope:
+		case application.IDTypeScope:
 			typeStr = "Scope"
 		}
 
@@ -135,7 +135,7 @@ func (m *DeleteModel) View() string {
 		b.WriteString("\n\n")
 
 		// Additional warning for containers
-		if m.targetNode.Type != domain.IDTypeItem {
+		if m.targetNode.Type != application.IDTypeItem {
 			b.WriteString(styles.MutedText.Render("  All contents will be permanently deleted."))
 			b.WriteString("\n\n")
 		}

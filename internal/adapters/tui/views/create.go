@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/tui/styles"
+	"libraio/internal/application"
 	"libraio/internal/application/commands"
-	"libraio/internal/domain"
 	"libraio/internal/ports"
 )
 
@@ -49,7 +49,7 @@ const (
 type CreateModel struct {
 	repo         ports.VaultRepository
 	openInEditor bool
-	parentNode   *domain.TreeNode
+	parentNode   *application.TreeNode
 	mode         CreateMode
 	descInput    textinput.Model
 	parentInput  textinput.Model
@@ -79,20 +79,20 @@ func NewCreateModel(repo ports.VaultRepository, openInEditor bool) *CreateModel 
 }
 
 // SetParent sets the parent node for creation
-func (m *CreateModel) SetParent(node *domain.TreeNode) {
+func (m *CreateModel) SetParent(node *application.TreeNode) {
 	m.parentNode = node
 	m.message = ""
 	m.messageErr = false
 
 	// Determine mode and prefill parent
 	switch node.Type {
-	case domain.IDTypeArea:
+	case application.IDTypeArea:
 		m.mode = CreateModeCategory
 		m.parentInput.SetValue(node.ID)
-	case domain.IDTypeCategory:
+	case application.IDTypeCategory:
 		m.mode = CreateModeItem
 		m.parentInput.SetValue(node.ID)
-	case domain.IDTypeScope:
+	case application.IDTypeScope:
 		// Need to select area first
 		m.mode = CreateModeCategory
 		m.parentInput.SetValue("")
@@ -166,10 +166,10 @@ func (m *CreateModel) create() tea.Cmd {
 		}
 
 		ctx := context.Background()
-		parentType := domain.ParseIDType(parentID)
+		parentType := application.ParseIDType(parentID)
 
 		switch parentType {
-		case domain.IDTypeArea:
+		case application.IDTypeArea:
 			cmd := commands.NewCreateCategoryCommand(m.repo, parentID, description)
 			result, err := cmd.Execute(ctx)
 			if err != nil {
@@ -177,7 +177,7 @@ func (m *CreateModel) create() tea.Cmd {
 			}
 			return CreateSuccessMsg{Message: result.Message}
 
-		case domain.IDTypeCategory:
+		case application.IDTypeCategory:
 			cmd := commands.NewCreateItemCommand(m.repo, parentID, description)
 			result, err := cmd.Execute(ctx)
 			if err != nil {

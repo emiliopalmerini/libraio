@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"libraio/internal/application"
 	"libraio/internal/application/commands"
-	"libraio/internal/domain"
 )
 
 var archiveCmd = &cobra.Command{
@@ -26,10 +26,10 @@ Examples:
 		id := args[0]
 		ctx := context.Background()
 
-		idType := domain.ParseIDType(id)
+		idType := application.ParseIDType(id)
 
 		switch idType {
-		case domain.IDTypeItem:
+		case application.IDTypeItem:
 			archiveCmd := commands.NewArchiveItemCommand(GetRepo(), id)
 			result, err := archiveCmd.Execute(ctx)
 			if err != nil {
@@ -37,7 +37,7 @@ Examples:
 			}
 			fmt.Println(result.Message)
 
-		case domain.IDTypeCategory:
+		case application.IDTypeCategory:
 			archiveCmd := commands.NewArchiveCategoryCommand(GetRepo(), id)
 			result, err := archiveCmd.Execute(ctx)
 			if err != nil {

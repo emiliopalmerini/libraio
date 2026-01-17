@@ -9,8 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/tui/styles"
+	"libraio/internal/application"
 	"libraio/internal/application/commands"
-	"libraio/internal/domain"
 	"libraio/internal/ports"
 )
 
@@ -34,7 +34,7 @@ var ArchiveKeys = ArchiveKeyMap{
 // ArchiveModel is the model for the archive confirmation view
 type ArchiveModel struct {
 	repo       ports.VaultRepository
-	targetNode *domain.TreeNode
+	targetNode *application.TreeNode
 	width      int
 	height     int
 }
@@ -47,7 +47,7 @@ func NewArchiveModel(repo ports.VaultRepository) *ArchiveModel {
 }
 
 // SetTarget sets the target node for archiving
-func (m *ArchiveModel) SetTarget(node *domain.TreeNode) {
+func (m *ArchiveModel) SetTarget(node *application.TreeNode) {
 	m.targetNode = node
 }
 
@@ -88,7 +88,7 @@ func (m *ArchiveModel) archive() tea.Cmd {
 		ctx := context.Background()
 
 		switch m.targetNode.Type {
-		case domain.IDTypeItem:
+		case application.IDTypeItem:
 			cmd := commands.NewArchiveItemCommand(m.repo, m.targetNode.ID)
 			result, err := cmd.Execute(ctx)
 			if err != nil {
@@ -98,7 +98,7 @@ func (m *ArchiveModel) archive() tea.Cmd {
 				Message: fmt.Sprintf("Archived %s %s → %s", m.targetNode.ID, m.targetNode.Name, result.ArchivedItem.ID),
 			}
 
-		case domain.IDTypeCategory:
+		case application.IDTypeCategory:
 			cmd := commands.NewArchiveCategoryCommand(m.repo, m.targetNode.ID)
 			result, err := cmd.Execute(ctx)
 			if err != nil {
@@ -126,7 +126,7 @@ type ArchiveErrMsg struct {
 
 // SwitchToArchiveMsg requests switching to archive view
 type SwitchToArchiveMsg struct {
-	TargetNode *domain.TreeNode
+	TargetNode *application.TreeNode
 }
 
 // View renders the archive confirmation view
@@ -146,10 +146,10 @@ func (m *ArchiveModel) View() string {
 		typeStr := ""
 		description := ""
 		switch m.targetNode.Type {
-		case domain.IDTypeItem:
+		case application.IDTypeItem:
 			typeStr = "Item"
 			description = "This item will be moved to the archive category with a new ID."
-		case domain.IDTypeCategory:
+		case application.IDTypeCategory:
 			typeStr = "Category"
 			description = "All items in this category will be moved to the archive category.\nThe category will be deleted after archiving."
 		default:
@@ -166,10 +166,10 @@ func (m *ArchiveModel) View() string {
 		b.WriteString("\n\n")
 
 		// Show archive destination
-		if m.targetNode.Type == domain.IDTypeItem || m.targetNode.Type == domain.IDTypeCategory {
-			areaID, err := domain.ParseArea(m.targetNode.ID)
+		if m.targetNode.Type == application.IDTypeItem || m.targetNode.Type == application.IDTypeCategory {
+			areaID, err := application.ParseArea(m.targetNode.ID)
 			if err == nil {
-				archiveCatID, err := domain.ArchiveCategory(areaID)
+				archiveCatID, err := application.ArchiveCategory(areaID)
 				if err == nil {
 					b.WriteString(styles.MutedText.Render(fmt.Sprintf("  Destination: %s Archive", archiveCatID)))
 					b.WriteString("\n\n")

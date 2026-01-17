@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"libraio/internal/application"
 	"libraio/internal/application/commands"
-	"libraio/internal/domain"
 )
 
 var moveCmd = &cobra.Command{
@@ -28,10 +28,10 @@ Examples:
 		destID := args[1]
 		ctx := context.Background()
 
-		sourceType := domain.ParseIDType(sourceID)
+		sourceType := application.ParseIDType(sourceID)
 
 		switch sourceType {
-		case domain.IDTypeItem:
+		case application.IDTypeItem:
 			moveCmd := commands.NewMoveItemCommand(GetRepo(), sourceID, destID)
 			result, err := moveCmd.Execute(ctx)
 			if err != nil {
@@ -39,7 +39,7 @@ Examples:
 			}
 			fmt.Println(result.Message)
 
-		case domain.IDTypeCategory:
+		case application.IDTypeCategory:
 			moveCmd := commands.NewMoveCategoryCommand(GetRepo(), sourceID, destID)
 			result, err := moveCmd.Execute(ctx)
 			if err != nil {

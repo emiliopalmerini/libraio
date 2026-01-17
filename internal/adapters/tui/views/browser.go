@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"libraio/internal/adapters/tui/styles"
+	"libraio/internal/application"
 	"libraio/internal/application/commands"
-	"libraio/internal/domain"
 	"libraio/internal/ports"
 )
 
@@ -86,8 +86,8 @@ var BrowserKeys = BrowserKeyMap{
 // BrowserModel is the model for the tree browser view
 type BrowserModel struct {
 	repo       ports.VaultRepository
-	root       *domain.TreeNode
-	flatNodes  []*domain.TreeNode
+	root       *application.TreeNode
+	flatNodes  []*application.TreeNode
 	cursor     int
 	viewport   int // viewport offset (first visible line)
 	width      int
@@ -98,8 +98,8 @@ type BrowserModel struct {
 	// Search mode
 	searchMode    bool
 	searchInput   textinput.Model
-	searchMatches []domain.SearchResult // matched results from repo
-	searchIndex   int                   // current match index
+	searchMatches []application.SearchResult // matched results from repo
+	searchIndex   int                        // current match index
 
 	// For restoring state after reload
 	restoreCursor int
@@ -132,7 +132,7 @@ func (m *BrowserModel) loadTree() tea.Msg {
 }
 
 type treeLoadedMsg struct {
-	root *domain.TreeNode
+	root *application.TreeNode
 }
 
 type errMsg struct {
@@ -140,7 +140,7 @@ type errMsg struct {
 }
 
 type childrenLoadedMsg struct {
-	node *domain.TreeNode
+	node *application.TreeNode
 }
 
 type successMsg struct {
@@ -220,7 +220,7 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, BrowserKeys.Enter):
 			if node := m.selectedNode(); node != nil {
-				if node.Type == domain.IDTypeItem {
+				if node.Type == application.IDTypeItem {
 					// Open README in editor
 					readmePath := node.Path + "/README.md"
 					return m, func() tea.Msg {
@@ -240,7 +240,7 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, BrowserKeys.Obsidian):
 			if node := m.selectedNode(); node != nil {
-				if node.Type == domain.IDTypeItem {
+				if node.Type == application.IDTypeItem {
 					readmePath := node.Path + "/README.md"
 					return m, func() tea.Msg {
 						return OpenObsidianMsg{Path: readmePath}
@@ -269,7 +269,7 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, BrowserKeys.Move):
 			// Return command to switch to move view (only for items and categories)
 			if node := m.selectedNode(); node != nil {
-				if node.Type == domain.IDTypeItem || node.Type == domain.IDTypeCategory {
+				if node.Type == application.IDTypeItem || node.Type == application.IDTypeCategory {
 					return m, func() tea.Msg {
 						return SwitchToMoveMsg{SourceNode: node}
 					}
@@ -436,9 +436,9 @@ func fuzzyScore(target, query string) int {
 }
 
 // fuzzySort sorts search results by relevance to query
-func (m *BrowserModel) fuzzySort(results []domain.SearchResult, query string) []domain.SearchResult {
+func (m *BrowserModel) fuzzySort(results []application.SearchResult, query string) []application.SearchResult {
 	type scored struct {
-		result domain.SearchResult
+		result application.SearchResult
 		score  int
 	}
 
@@ -468,7 +468,7 @@ func (m *BrowserModel) fuzzySort(results []domain.SearchResult, query string) []
 		}
 	}
 
-	sorted := make([]domain.SearchResult, len(scoredResults))
+	sorted := make([]application.SearchResult, len(scoredResults))
 	for i, s := range scoredResults {
 		sorted[i] = s.result
 	}
@@ -476,7 +476,7 @@ func (m *BrowserModel) fuzzySort(results []domain.SearchResult, query string) []
 }
 
 // navigateToResult expands the tree path and navigates to a search result
-func (m *BrowserModel) navigateToResult(result domain.SearchResult) {
+func (m *BrowserModel) navigateToResult(result application.SearchResult) {
 	// Parse the ID to get parent IDs
 	// e.g., "S01.11.15" -> ["S01", "S01.10-19", "S01.11", "S01.11.15"]
 	parts := m.getIDPath(result.ID)
@@ -513,17 +513,17 @@ func (m *BrowserModel) navigateToResult(result domain.SearchResult) {
 // getIDPath returns the hierarchy of IDs leading to the given ID
 func (m *BrowserModel) getIDPath(id string) []string {
 	var path []string
-	idType := domain.ParseIDType(id)
+	idType := application.ParseIDType(id)
 
 	switch idType {
-	case domain.IDTypeScope:
+	case application.IDTypeScope:
 		path = []string{id}
-	case domain.IDTypeArea:
+	case application.IDTypeArea:
 		// Area: S01.10-19 -> scope is S01
 		if len(id) >= 3 {
 			path = []string{id[:3], id}
 		}
-	case domain.IDTypeCategory:
+	case application.IDTypeCategory:
 		// Category: S01.11 -> scope is S01, area is S01.10-19
 		if len(id) >= 3 {
 			scope := id[:3]
@@ -534,7 +534,7 @@ func (m *BrowserModel) getIDPath(id string) []string {
 				path = []string{scope, area, id}
 			}
 		}
-	case domain.IDTypeItem:
+	case application.IDTypeItem:
 		// Item: S01.11.15 -> scope, area, category, item
 		if len(id) >= 3 {
 			scope := id[:3]
@@ -550,7 +550,7 @@ func (m *BrowserModel) getIDPath(id string) []string {
 	return path
 }
 
-func (m *BrowserModel) loadNodeChildren(node *domain.TreeNode) tea.Cmd {
+func (m *BrowserModel) loadNodeChildren(node *application.TreeNode) tea.Cmd {
 	return func() tea.Msg {
 		if err := m.repo.LoadChildren(node); err != nil {
 			return errMsg{err}
@@ -560,7 +560,7 @@ func (m *BrowserModel) loadNodeChildren(node *domain.TreeNode) tea.Cmd {
 }
 
 // restoreExpansion recursively restores expansion state and loads children
-func (m *BrowserModel) restoreExpansion(node *domain.TreeNode) {
+func (m *BrowserModel) restoreExpansion(node *application.TreeNode) {
 	if m.expandedIDs[node.ID] {
 		node.Expand()
 		m.repo.LoadChildren(node)
@@ -571,7 +571,7 @@ func (m *BrowserModel) restoreExpansion(node *domain.TreeNode) {
 	}
 }
 
-func (m *BrowserModel) selectedNode() *domain.TreeNode {
+func (m *BrowserModel) selectedNode() *application.TreeNode {
 	if m.cursor >= 0 && m.cursor < len(m.flatNodes) {
 		return m.flatNodes[m.cursor]
 	}
@@ -653,13 +653,13 @@ func (m *BrowserModel) View() string {
 	return styles.App.Render(b.String())
 }
 
-func (m *BrowserModel) renderNode(node *domain.TreeNode, selected bool) string {
+func (m *BrowserModel) renderNode(node *application.TreeNode, selected bool) string {
 	depth := node.Depth()
 	indent := strings.Repeat("  ", depth)
 
 	// Prefix (expand indicator)
 	var prefix string
-	if node.Type == domain.IDTypeItem {
+	if node.Type == application.IDTypeItem {
 		prefix = styles.TreeLeaf
 	} else if node.IsExpanded {
 		prefix = styles.TreeExpanded
@@ -673,18 +673,18 @@ func (m *BrowserModel) renderNode(node *domain.TreeNode, selected bool) string {
 	// Apply style based on type
 	var style lipgloss.Style
 	switch node.Type {
-	case domain.IDTypeScope:
+	case application.IDTypeScope:
 		scopeColor := styles.ScopeColor(node.ID)
 		style = styles.NodeScope.Foreground(scopeColor)
-	case domain.IDTypeArea:
+	case application.IDTypeArea:
 		style = styles.NodeArea
-	case domain.IDTypeCategory:
+	case application.IDTypeCategory:
 		if strings.HasSuffix(node.ID, "9") {
 			style = styles.NodeArchive
 		} else {
 			style = styles.NodeCategory
 		}
-	case domain.IDTypeItem:
+	case application.IDTypeItem:
 		style = styles.NodeItem
 	}
 
@@ -720,7 +720,7 @@ func (m *BrowserModel) renderHelpLine() string {
 	// Context-specific bindings based on node type
 	if node != nil {
 		switch node.Type {
-		case domain.IDTypeItem:
+		case application.IDTypeItem:
 			// Items: open README, open in obsidian, yank ID, move, archive, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "open")),
@@ -730,7 +730,7 @@ func (m *BrowserModel) renderHelpLine() string {
 				BrowserKeys.Archive,
 				BrowserKeys.Delete,
 			)
-		case domain.IDTypeCategory:
+		case application.IDTypeCategory:
 			// Categories: toggle, new item, move, archive, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
@@ -739,14 +739,14 @@ func (m *BrowserModel) renderHelpLine() string {
 				BrowserKeys.Archive,
 				BrowserKeys.Delete,
 			)
-		case domain.IDTypeArea:
+		case application.IDTypeArea:
 			// Areas: toggle, new category, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new category")),
 				BrowserKeys.Delete,
 			)
-		case domain.IDTypeScope:
+		case application.IDTypeScope:
 			// Scopes: toggle, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
@@ -838,15 +838,15 @@ func (m *BrowserModel) Reload() tea.Cmd {
 
 // Messages for view switching
 type SwitchToCreateMsg struct {
-	ParentNode *domain.TreeNode
+	ParentNode *application.TreeNode
 }
 
 type SwitchToMoveMsg struct {
-	SourceNode *domain.TreeNode
+	SourceNode *application.TreeNode
 }
 
 type SwitchToDeleteMsg struct {
-	TargetNode *domain.TreeNode
+	TargetNode *application.TreeNode
 }
 
 type SwitchToSearchMsg struct{}

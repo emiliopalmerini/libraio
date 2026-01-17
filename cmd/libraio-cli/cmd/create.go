@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"libraio/internal/application"
 	"libraio/internal/application/commands"
-	"libraio/internal/domain"
 )
 
 var createCmd = &cobra.Command{
@@ -28,10 +28,10 @@ Examples:
 		description := args[1]
 		ctx := context.Background()
 
-		parentType := domain.ParseIDType(parentID)
+		parentType := application.ParseIDType(parentID)
 
 		switch parentType {
-		case domain.IDTypeArea:
+		case application.IDTypeArea:
 			createCmd := commands.NewCreateCategoryCommand(GetRepo(), parentID, description)
 			result, err := createCmd.Execute(ctx)
 			if err != nil {
@@ -39,7 +39,7 @@ Examples:
 			}
 			fmt.Println(result.Message)
 
-		case domain.IDTypeCategory:
+		case application.IDTypeCategory:
 			createCmd := commands.NewCreateItemCommand(GetRepo(), parentID, description)
 			result, err := createCmd.Execute(ctx)
 			if err != nil {

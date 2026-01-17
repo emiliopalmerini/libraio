@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"libraio/internal/application"
 	"libraio/internal/application/commands"
-	"libraio/internal/domain"
 )
 
 var treeCmd = &cobra.Command{
@@ -32,13 +32,13 @@ Example:
 	},
 }
 
-func printTree(node *domain.TreeNode, depth int) {
+func printTree(node *application.TreeNode, depth int) {
 	if node == nil {
 		return
 	}
 
 	// Load children if not loaded
-	if len(node.Children) == 0 && node.Type != domain.IDTypeItem {
+	if len(node.Children) == 0 && node.Type != application.IDTypeItem {
 		GetRepo().LoadChildren(node)
 	}
 

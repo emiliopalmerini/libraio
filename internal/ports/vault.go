@@ -34,5 +34,5 @@ type VaultRepository interface {
 
 	// Path resolution
 	GetPath(id string) (string, error)
-	GetReadmePath(itemID string) (string, error)
+	GetJDexPath(itemID string) (string, error)
 }

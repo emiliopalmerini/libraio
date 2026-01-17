@@ -133,3 +133,102 @@ func padNum(n int) string {
 	}
 	return string(rune('0'+n/10)) + string(rune('0'+n%10))
 }
+
+func TestIsAreaManagementCategory(t *testing.T) {
+	tests := []struct {
+		categoryID string
+		want       bool
+	}{
+		{"S01.10", true},     // Area management category
+		{"S01.20", true},     // Area management category
+		{"S01.30", true},     // Area management category
+		{"S01.11", false},    // Regular category
+		{"S01.21", false},    // Regular category
+		{"S01.19", false},    // Archive category
+		{"S01.29", false},    // Archive category
+		{"S01", false},       // Scope, not category
+		{"S01.10-19", false}, // Area, not category
+		{"S01.11.11", false}, // Item, not category
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.categoryID, func(t *testing.T) {
+			got := IsAreaManagementCategory(tt.categoryID)
+			if got != tt.want {
+				t.Errorf("IsAreaManagementCategory(%q) = %v, want %v", tt.categoryID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAreaRangeFromCategory(t *testing.T) {
+	tests := []struct {
+		categoryID string
+		want       string
+	}{
+		{"S01.10", "10-19"},
+		{"S01.11", "10-19"},
+		{"S01.19", "10-19"},
+		{"S01.20", "20-29"},
+		{"S01.25", "20-29"},
+		{"S01.30", "30-39"},
+		{"S01", ""},       // Scope, not category
+		{"S01.10-19", ""}, // Area, not category
+		{"S01.11.11", ""}, // Item, not category
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.categoryID, func(t *testing.T) {
+			got := AreaRangeFromCategory(tt.categoryID)
+			if got != tt.want {
+				t.Errorf("AreaRangeFromCategory(%q) = %q, want %q", tt.categoryID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStandardZeroNameForContext(t *testing.T) {
+	tests := []struct {
+		baseName   string
+		categoryID string
+		want       string
+	}{
+		// Area-level categories should get "for area X0-X9" suffix
+		{"Inbox", "S01.10", "Inbox for area 10-19"},
+		{"Tasks", "S01.20", "Tasks for area 20-29"},
+		{"Archive", "S01.30", "Archive for area 30-39"},
+		// Regular categories should use simple names
+		{"Inbox", "S01.11", "Inbox"},
+		{"Tasks", "S01.21", "Tasks"},
+		{"Archive", "S01.19", "Archive"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.baseName+"_"+tt.categoryID, func(t *testing.T) {
+			got := StandardZeroNameForContext(tt.baseName, tt.categoryID)
+			if got != tt.want {
+				t.Errorf("StandardZeroNameForContext(%q, %q) = %q, want %q", tt.baseName, tt.categoryID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestJDexFileName(t *testing.T) {
+	tests := []struct {
+		folderName string
+		want       string
+	}{
+		{"S01.11.01 Inbox", "S01.11.01 Inbox.md"},
+		{"S01.10.01 Inbox for area 10-19", "S01.10.01 Inbox for area 10-19.md"},
+		{"S01.11.11 Theatre", "S01.11.11 Theatre.md"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.folderName, func(t *testing.T) {
+			got := JDexFileName(tt.folderName)
+			if got != tt.want {
+				t.Errorf("JDexFileName(%q) = %q, want %q", tt.folderName, got, tt.want)
+			}
+		})
+	}
+}

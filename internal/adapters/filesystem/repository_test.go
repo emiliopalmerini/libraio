@@ -55,31 +55,33 @@ func TestCreateCategory_CreatesStandardZeros(t *testing.T) {
 	// Verify all standard zeros were created
 	for _, sz := range domain.StandardZeros {
 		itemID := cat.ID + "." + padNumber(sz.Number)
-		itemPath := filepath.Join(cat.Path, domain.FormatFolderName(itemID, sz.Name))
+		folderName := domain.FormatFolderName(itemID, sz.Name)
+		itemPath := filepath.Join(cat.Path, folderName)
 
 		if _, err := os.Stat(itemPath); os.IsNotExist(err) {
 			t.Errorf("standard zero %s not created at %s", sz.Name, itemPath)
 		}
 
-		readmePath := filepath.Join(itemPath, "README.md")
-		if _, err := os.Stat(readmePath); os.IsNotExist(err) {
-			t.Errorf("README not created for %s", sz.Name)
+		// JDex file is now named after the folder
+		jdexPath := filepath.Join(itemPath, domain.JDexFileName(folderName))
+		if _, err := os.Stat(jdexPath); os.IsNotExist(err) {
+			t.Errorf("JDex file not created for %s", sz.Name)
 		}
 
-		content, err := os.ReadFile(readmePath)
+		content, err := os.ReadFile(jdexPath)
 		if err != nil {
-			t.Errorf("failed to read README for %s: %v", sz.Name, err)
+			t.Errorf("failed to read JDex for %s: %v", sz.Name, err)
 			continue
 		}
 
-		// Verify README contains the purpose
+		// Verify JDex contains the purpose
 		if !strings.Contains(string(content), sz.Purpose) {
-			t.Errorf("README for %s does not contain purpose text", sz.Name)
+			t.Errorf("JDex for %s does not contain purpose text", sz.Name)
 		}
 
 		// Verify standard-zero tag
 		if !strings.Contains(string(content), "standard-zero") {
-			t.Errorf("README for %s does not contain standard-zero tag", sz.Name)
+			t.Errorf("JDex for %s does not contain standard-zero tag", sz.Name)
 		}
 	}
 }
@@ -582,10 +584,10 @@ func TestArchiveItem_UpdatesREADME(t *testing.T) {
 		t.Fatalf("ArchiveItem failed: %v", err)
 	}
 
-	// Read the README and verify it was updated
-	content, err := os.ReadFile(archivedItem.ReadmePath)
+	// Read the JDex file and verify it was updated
+	content, err := os.ReadFile(archivedItem.JDexPath)
 	if err != nil {
-		t.Fatalf("failed to read README: %v", err)
+		t.Fatalf("failed to read JDex: %v", err)
 	}
 
 	// Verify old ID is replaced with new ID

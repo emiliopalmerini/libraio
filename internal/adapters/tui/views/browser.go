@@ -2,6 +2,8 @@ package views
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -13,6 +15,7 @@ import (
 	"libraio/internal/adapters/tui/styles"
 	"libraio/internal/application"
 	"libraio/internal/application/commands"
+	"libraio/internal/domain"
 	"libraio/internal/ports"
 )
 
@@ -221,10 +224,10 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, BrowserKeys.Enter):
 			if node := m.selectedNode(); node != nil {
 				if node.Type == application.IDTypeItem {
-					// Open README in editor
-					readmePath := node.Path + "/README.md"
+					// Open JDex file in editor
+					jdexPath := m.getJDexPath(node)
 					return m, func() tea.Msg {
-						return OpenEditorMsg{Path: readmePath}
+						return OpenEditorMsg{Path: jdexPath}
 					}
 				}
 				// Toggle expand/collapse for non-items
@@ -241,9 +244,9 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, BrowserKeys.Obsidian):
 			if node := m.selectedNode(); node != nil {
 				if node.Type == application.IDTypeItem {
-					readmePath := node.Path + "/README.md"
+					jdexPath := m.getJDexPath(node)
 					return m, func() tea.Msg {
-						return OpenObsidianMsg{Path: readmePath}
+						return OpenObsidianMsg{Path: jdexPath}
 					}
 				}
 			}
@@ -576,6 +579,26 @@ func (m *BrowserModel) selectedNode() *application.TreeNode {
 		return m.flatNodes[m.cursor]
 	}
 	return nil
+}
+
+// getJDexPath returns the JDex file path for a node, with fallback to legacy README.md
+func (m *BrowserModel) getJDexPath(node *application.TreeNode) string {
+	folderName := filepath.Base(node.Path)
+	jdexPath := filepath.Join(node.Path, domain.JDexFileName(folderName))
+
+	// Check if new-style JDex file exists
+	if _, err := os.Stat(jdexPath); err == nil {
+		return jdexPath
+	}
+
+	// Fallback to legacy README.md for backwards compatibility
+	legacyPath := filepath.Join(node.Path, "README.md")
+	if _, err := os.Stat(legacyPath); err == nil {
+		return legacyPath
+	}
+
+	// Return new-style path as default (for new items)
+	return jdexPath
 }
 
 func (m *BrowserModel) refreshFlatNodes() {

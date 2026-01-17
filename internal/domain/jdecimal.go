@@ -236,6 +236,51 @@ func ArchiveCategory(area string) (string, error) {
 	return fmt.Sprintf("%s.%02d", scope, archiveNum), nil
 }
 
+// IsAreaManagementCategory checks if a category ID is an area-level management category (.X0)
+// e.g., S01.10 -> true, S01.11 -> false, S01.20 -> true
+func IsAreaManagementCategory(categoryID string) bool {
+	if ParseIDType(categoryID) != IDTypeCategory {
+		return false
+	}
+	// Category ID format: S0X.YZ - check if Z is 0
+	parts := strings.Split(categoryID, ".")
+	if len(parts) != 2 || len(parts[1]) != 2 {
+		return false
+	}
+	return parts[1][1] == '0'
+}
+
+// AreaRangeFromCategory returns the area range string for a category
+// e.g., S01.10 -> "10-19", S01.21 -> "20-29"
+func AreaRangeFromCategory(categoryID string) string {
+	if ParseIDType(categoryID) != IDTypeCategory {
+		return ""
+	}
+	parts := strings.Split(categoryID, ".")
+	if len(parts) != 2 || len(parts[1]) != 2 {
+		return ""
+	}
+	tensDigit := parts[1][0:1]
+	return fmt.Sprintf("%s0-%s9", tensDigit, tensDigit)
+}
+
+// StandardZeroNameForContext returns the appropriate standard zero name based on category context
+// For area-level categories (.X0): "Inbox" -> "Inbox for area X0-X9"
+// For regular categories: "Inbox" -> "Inbox"
+func StandardZeroNameForContext(baseName, categoryID string) string {
+	if IsAreaManagementCategory(categoryID) {
+		areaRange := AreaRangeFromCategory(categoryID)
+		return fmt.Sprintf("%s for area %s", baseName, areaRange)
+	}
+	return baseName
+}
+
+// JDexFileName returns the JDex filename for a folder name
+// e.g., "S01.11.01 Inbox" -> "S01.11.01 Inbox.md"
+func JDexFileName(folderName string) string {
+	return folderName + ".md"
+}
+
 // ExtractDescription extracts the description from a folder name
 // e.g., "S01.11.15 Theatre" -> "Theatre"
 func ExtractDescription(folderName string) string {

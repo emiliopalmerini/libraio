@@ -185,7 +185,7 @@ func (m *CreateModel) create() tea.Cmd {
 			}
 			if m.openInEditor {
 				return OpenEditorMsg{
-					Path:    result.Item.ReadmePath,
+					Path:    result.Item.JDexPath,
 					Message: result.Message,
 				}
 			}

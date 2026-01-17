@@ -175,12 +175,13 @@ func (r *Repository) ListItems(categoryID string) ([]domain.Item, error) {
 		}
 
 		itemPath := filepath.Join(categoryPath, entry.Name())
+		folderName := entry.Name()
 		items = append(items, domain.Item{
 			ID:         matches[1],
 			Name:       matches[2],
 			Path:       itemPath,
 			CategoryID: categoryID,
-			ReadmePath: filepath.Join(itemPath, "README.md"),
+			JDexPath:   filepath.Join(itemPath, domain.JDexFileName(folderName)),
 		})
 	}
 
@@ -239,24 +240,26 @@ func (r *Repository) CreateCategory(areaID, description string) (*domain.Categor
 func (r *Repository) CreateStandardZeros(categoryID, categoryPath string) error {
 	for _, sz := range domain.StandardZeros {
 		itemID := fmt.Sprintf("%s.%02d", categoryID, sz.Number)
-		folderName := domain.FormatFolderName(itemID, sz.Name)
+		// Use context-aware naming for area-level categories
+		itemName := domain.StandardZeroNameForContext(sz.Name, categoryID)
+		folderName := domain.FormatFolderName(itemID, itemName)
 		itemPath := filepath.Join(categoryPath, folderName)
 
 		if err := os.MkdirAll(itemPath, 0755); err != nil {
-			return fmt.Errorf("failed to create %s: %w", sz.Name, err)
+			return fmt.Errorf("failed to create %s: %w", itemName, err)
 		}
 
-		readmePath := filepath.Join(itemPath, "README.md")
-		readmeContent := domain.StandardZeroReadmeTemplate(itemID, sz.Name, sz.Purpose)
+		jdexPath := filepath.Join(itemPath, domain.JDexFileName(folderName))
+		jdexContent := domain.StandardZeroReadmeTemplate(itemID, itemName, sz.Purpose)
 
-		if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
-			return fmt.Errorf("failed to create README for %s: %w", sz.Name, err)
+		if err := os.WriteFile(jdexPath, []byte(jdexContent), 0644); err != nil {
+			return fmt.Errorf("failed to create JDex for %s: %w", itemName, err)
 		}
 	}
 	return nil
 }
 
-// CreateItem creates a new item in a category with a README
+// CreateItem creates a new item in a category with a JDex file
 func (r *Repository) CreateItem(categoryID, description string) (*domain.Item, error) {
 	categoryPath, err := r.findCategoryPath(categoryID)
 	if err != nil {
@@ -286,12 +289,12 @@ func (r *Repository) CreateItem(categoryID, description string) (*domain.Item, e
 		return nil, fmt.Errorf("failed to create item: %w", err)
 	}
 
-	// Create README
-	readmePath := filepath.Join(itemPath, "README.md")
-	readmeContent := domain.ReadmeTemplate(newID, description)
+	// Create JDex file
+	jdexPath := filepath.Join(itemPath, domain.JDexFileName(folderName))
+	jdexContent := domain.ReadmeTemplate(newID, description)
 
-	if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
-		return nil, fmt.Errorf("failed to create README: %w", err)
+	if err := os.WriteFile(jdexPath, []byte(jdexContent), 0644); err != nil {
+		return nil, fmt.Errorf("failed to create JDex: %w", err)
 	}
 
 	return &domain.Item{
@@ -299,7 +302,7 @@ func (r *Repository) CreateItem(categoryID, description string) (*domain.Item, e
 		Name:       description,
 		Path:       itemPath,
 		CategoryID: categoryID,
-		ReadmePath: readmePath,
+		JDexPath:   jdexPath,
 	}, nil
 }
 
@@ -357,12 +360,30 @@ func (r *Repository) MoveItem(srcItemID, dstCategoryID string) (*domain.Item, er
 		return nil, fmt.Errorf("failed to move item: %w", err)
 	}
 
-	// Update README if it exists
-	readmePath := filepath.Join(dstPath, "README.md")
-	if content, err := os.ReadFile(readmePath); err == nil {
-		updated := domain.UpdateReadmeID(string(content), srcItemID, newID, description)
-		if err := os.WriteFile(readmePath, []byte(updated), 0644); err != nil {
-			// Log but don't fail - item was moved successfully
+	// Find and update JDex file (check for new-style or legacy README.md)
+	newJDexPath := filepath.Join(dstPath, domain.JDexFileName(newFolderName))
+	oldFolderName := filepath.Base(srcPath)
+	oldJDexPath := filepath.Join(dstPath, domain.JDexFileName(oldFolderName))
+	legacyReadmePath := filepath.Join(dstPath, "README.md")
+
+	// Try to find existing JDex file and update/rename it
+	var sourcePath string
+	if _, err := os.Stat(oldJDexPath); err == nil {
+		sourcePath = oldJDexPath
+	} else if _, err := os.Stat(legacyReadmePath); err == nil {
+		sourcePath = legacyReadmePath
+	}
+
+	if sourcePath != "" {
+		if content, err := os.ReadFile(sourcePath); err == nil {
+			updated := domain.UpdateReadmeID(string(content), srcItemID, newID, description)
+			// Write to new path
+			if err := os.WriteFile(newJDexPath, []byte(updated), 0644); err == nil {
+				// Remove old file if different from new
+				if sourcePath != newJDexPath {
+					os.Remove(sourcePath)
+				}
+			}
 		}
 	}
 
@@ -371,7 +392,7 @@ func (r *Repository) MoveItem(srcItemID, dstCategoryID string) (*domain.Item, er
 		Name:       description,
 		Path:       dstPath,
 		CategoryID: dstCategoryID,
-		ReadmePath: readmePath,
+		JDexPath:   newJDexPath,
 	}, nil
 }
 
@@ -481,11 +502,28 @@ func (r *Repository) updateItemIDsInCategory(categoryPath, _, newCategoryID stri
 			continue
 		}
 
-		// Update README
-		readmePath := filepath.Join(newPath, "README.md")
-		if content, err := os.ReadFile(readmePath); err == nil {
-			updated := domain.UpdateReadmeID(string(content), oldItemID, newItemID, description)
-			os.WriteFile(readmePath, []byte(updated), 0644)
+		// Find and update JDex file (check for new-style or legacy README.md)
+		oldFolderName := entry.Name()
+		newJDexPath := filepath.Join(newPath, domain.JDexFileName(newFolderName))
+		oldJDexPath := filepath.Join(newPath, domain.JDexFileName(oldFolderName))
+		legacyReadmePath := filepath.Join(newPath, "README.md")
+
+		var sourcePath string
+		if _, err := os.Stat(oldJDexPath); err == nil {
+			sourcePath = oldJDexPath
+		} else if _, err := os.Stat(legacyReadmePath); err == nil {
+			sourcePath = legacyReadmePath
+		}
+
+		if sourcePath != "" {
+			if content, err := os.ReadFile(sourcePath); err == nil {
+				updated := domain.UpdateReadmeID(string(content), oldItemID, newItemID, description)
+				if err := os.WriteFile(newJDexPath, []byte(updated), 0644); err == nil {
+					if sourcePath != newJDexPath {
+						os.Remove(sourcePath)
+					}
+				}
+			}
 		}
 	}
 }
@@ -886,13 +924,14 @@ func (r *Repository) GetPath(id string) (string, error) {
 	}
 }
 
-// GetReadmePath returns the README path for an item
-func (r *Repository) GetReadmePath(itemID string) (string, error) {
+// GetJDexPath returns the JDex file path for an item
+func (r *Repository) GetJDexPath(itemID string) (string, error) {
 	itemPath, err := r.findItemPath(itemID)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(itemPath, "README.md"), nil
+	folderName := filepath.Base(itemPath)
+	return filepath.Join(itemPath, domain.JDexFileName(folderName)), nil
 }
 
 // Helper methods for finding paths

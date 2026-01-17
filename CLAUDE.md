@@ -94,11 +94,18 @@ Each area has a dedicated archive category using the `.X9` pattern (e.g., `S01.1
 
 ## JDex (Johnny Decimal Index)
 
-The JDex is the master record of every ID in the system. Each `README.md` file in an ID folder serves as a JDex entry.
+The JDex is the master record of every ID in the system. Each item folder contains a JDex file **named after the folder** (e.g., `S01.11.01 Inbox/S01.11.01 Inbox.md`).
+
+### JDex File Naming
+
+JDex files match their parent folder name:
+- `S01.11.01 Inbox/S01.11.01 Inbox.md`
+- `S01.21.11 CSharp/S01.21.11 CSharp.md`
+- `S01.10.01 Inbox for area 10-19/S01.10.01 Inbox for area 10-19.md`
 
 ### Standard JDex Entry Format
 
-Every ID folder should contain a `README.md` with this structure:
+Every ID folder should contain a JDex file with this structure:
 
 ```yaml
 ---
@@ -117,8 +124,9 @@ Brief description of what this ID contains.
 
 ### Index File Rules
 
-- **Every ID folder** (Scope.XX.YY format) should contain a `README.md` as its JDex entry
-- The README.md serves as the main entry point and overview for that ID's content
+- **Every ID folder** (Scope.XX.YY format) must contain a JDex file named after the folder
+- The JDex file serves as the main entry point and overview for that ID's content
+- Legacy `README.md` files are still supported for backwards compatibility
 
 ## File Naming Rules
 
@@ -137,10 +145,21 @@ Brief description of what this ID contains.
    - For system items (inbox, templates, etc.), use Standard Zeros (`.01`-`.09`)
    - For regular content, use IDs starting at `.11`
 4. Create folder using format: `Scope.XX.YY Description`
-5. Create README.md with JDex frontmatter
+5. Create JDex file named after the folder with frontmatter
+
+### Area-Level Standard Zeros
+
+When creating standard zeros in `.X0` categories (area management), names include the area range:
+- `S01.10.01 Inbox for area 10-19`
+- `S01.10.02 Tasks for area 10-19`
+
+Regular category standard zeros use simple names:
+- `S01.11.01 Inbox`
+- `S01.11.02 Tasks`
 
 ## Code Conventions
 
 - Tree nodes are lazily loaded via `LoadChildren()`
-- Items have README.md files in their directories
+- Items have JDex files (named after folder) in their directories
+- Legacy README.md files are supported for backwards compatibility
 - Search uses fuzzy matching with scoring

@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/tui/styles"
+	"libraio/internal/application/commands"
 	"libraio/internal/domain"
 	"libraio/internal/ports"
 )
@@ -163,35 +165,31 @@ func (m *CreateModel) create() tea.Cmd {
 			return CreateErrMsg{Err: fmt.Errorf("description is required")}
 		}
 
+		ctx := context.Background()
 		parentType := domain.ParseIDType(parentID)
 
 		switch parentType {
 		case domain.IDTypeArea:
-			// Create category
-			cat, err := m.repo.CreateCategory(parentID, description)
+			cmd := commands.NewCreateCategoryCommand(m.repo, parentID, description)
+			result, err := cmd.Execute(ctx)
 			if err != nil {
 				return CreateErrMsg{Err: err}
 			}
-			return CreateSuccessMsg{
-				Message: fmt.Sprintf("Created category: %s %s", cat.ID, cat.Name),
-			}
+			return CreateSuccessMsg{Message: result.Message}
 
 		case domain.IDTypeCategory:
-			// Create item
-			item, err := m.repo.CreateItem(parentID, description)
+			cmd := commands.NewCreateItemCommand(m.repo, parentID, description)
+			result, err := cmd.Execute(ctx)
 			if err != nil {
 				return CreateErrMsg{Err: err}
 			}
-			// Open in editor
 			if m.openInEditor {
 				return OpenEditorMsg{
-					Path:    item.ReadmePath,
-					Message: fmt.Sprintf("Created item: %s %s", item.ID, item.Name),
+					Path:    result.Item.ReadmePath,
+					Message: result.Message,
 				}
 			}
-			return CreateSuccessMsg{
-				Message: fmt.Sprintf("Created item: %s %s", item.ID, item.Name),
-			}
+			return CreateSuccessMsg{Message: result.Message}
 
 		default:
 			return CreateErrMsg{Err: fmt.Errorf("invalid parent type: %s (expected area or category)", parentType)}

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"libraio/internal/adapters/tui/styles"
+	"libraio/internal/application/commands"
 	"libraio/internal/domain"
 	"libraio/internal/ports"
 )
@@ -279,28 +280,14 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, BrowserKeys.Archive):
 			// Return command to switch to archive view (only for items and non-archive categories)
 			if node := m.selectedNode(); node != nil {
-				if node.Type == domain.IDTypeItem || node.Type == domain.IDTypeCategory {
-					// Don't allow archiving items already in archive category or archive categories
-					if !strings.HasSuffix(node.ID, "9") {
-						areaID, err := domain.ParseArea(node.ID)
-						if err == nil {
-							archiveCatID, _ := domain.ArchiveCategory(areaID)
-							categoryID, _ := domain.ParseCategory(node.ID)
-							if node.Type == domain.IDTypeItem && categoryID == archiveCatID {
-								// Item is already in archive
-								m.message = "Item is already in archive"
-								m.messageErr = true
-								return m, nil
-							}
-						}
-						return m, func() tea.Msg {
-							return SwitchToArchiveMsg{TargetNode: node}
-						}
-					} else {
-						m.message = "Cannot archive the archive category"
-						m.messageErr = true
+				eligibility := commands.CheckArchiveEligibility(node.ID, node.Type)
+				if eligibility.CanArchive {
+					return m, func() tea.Msg {
+						return SwitchToArchiveMsg{TargetNode: node}
 					}
 				}
+				m.message = eligibility.Reason
+				m.messageErr = true
 			}
 			return m, nil
 

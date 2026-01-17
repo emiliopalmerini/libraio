@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/tui/styles"
+	"libraio/internal/application/commands"
 	"libraio/internal/domain"
 	"libraio/internal/ports"
 )
@@ -83,23 +85,27 @@ func (m *ArchiveModel) archive() tea.Cmd {
 			return ArchiveErrMsg{Err: fmt.Errorf("no target selected")}
 		}
 
+		ctx := context.Background()
+
 		switch m.targetNode.Type {
 		case domain.IDTypeItem:
-			archivedItem, err := m.repo.ArchiveItem(m.targetNode.ID)
+			cmd := commands.NewArchiveItemCommand(m.repo, m.targetNode.ID)
+			result, err := cmd.Execute(ctx)
 			if err != nil {
 				return ArchiveErrMsg{Err: err}
 			}
 			return ArchiveSuccessMsg{
-				Message: fmt.Sprintf("Archived %s %s → %s", m.targetNode.ID, m.targetNode.Name, archivedItem.ID),
+				Message: fmt.Sprintf("Archived %s %s → %s", m.targetNode.ID, m.targetNode.Name, result.ArchivedItem.ID),
 			}
 
 		case domain.IDTypeCategory:
-			archivedItems, err := m.repo.ArchiveCategory(m.targetNode.ID)
+			cmd := commands.NewArchiveCategoryCommand(m.repo, m.targetNode.ID)
+			result, err := cmd.Execute(ctx)
 			if err != nil {
 				return ArchiveErrMsg{Err: err}
 			}
 			return ArchiveSuccessMsg{
-				Message: fmt.Sprintf("Archived %d items from %s %s", len(archivedItems), m.targetNode.ID, m.targetNode.Name),
+				Message: fmt.Sprintf("Archived %d items from %s %s", len(result.ArchivedItems), m.targetNode.ID, m.targetNode.Name),
 			}
 
 		default:

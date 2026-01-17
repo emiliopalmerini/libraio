@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/tui/styles"
+	"libraio/internal/application/commands"
 	"libraio/internal/domain"
 	"libraio/internal/ports"
 )
@@ -104,35 +106,24 @@ func (m *MoveModel) move() tea.Cmd {
 			return MoveErrMsg{Err: fmt.Errorf("destination is required")}
 		}
 
-		destType := domain.ParseIDType(destID)
-		srcType := m.sourceNode.Type
+		ctx := context.Background()
 
-		switch srcType {
+		switch m.sourceNode.Type {
 		case domain.IDTypeItem:
-			// Moving item to category
-			if destType != domain.IDTypeCategory {
-				return MoveErrMsg{Err: fmt.Errorf("items can only be moved to categories")}
-			}
-			item, err := m.repo.MoveItem(m.sourceNode.ID, destID)
+			cmd := commands.NewMoveItemCommand(m.repo, m.sourceNode.ID, destID)
+			result, err := cmd.Execute(ctx)
 			if err != nil {
 				return MoveErrMsg{Err: err}
 			}
-			return MoveSuccessMsg{
-				Message: fmt.Sprintf("Moved to %s %s", item.ID, item.Name),
-			}
+			return MoveSuccessMsg{Message: result.Message}
 
 		case domain.IDTypeCategory:
-			// Moving category to area
-			if destType != domain.IDTypeArea {
-				return MoveErrMsg{Err: fmt.Errorf("categories can only be moved to areas")}
-			}
-			cat, err := m.repo.MoveCategory(m.sourceNode.ID, destID)
+			cmd := commands.NewMoveCategoryCommand(m.repo, m.sourceNode.ID, destID)
+			result, err := cmd.Execute(ctx)
 			if err != nil {
 				return MoveErrMsg{Err: err}
 			}
-			return MoveSuccessMsg{
-				Message: fmt.Sprintf("Moved to %s %s", cat.ID, cat.Name),
-			}
+			return MoveSuccessMsg{Message: result.Message}
 
 		default:
 			return MoveErrMsg{Err: fmt.Errorf("can only move items or categories")}

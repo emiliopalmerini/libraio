@@ -14,7 +14,6 @@
       {
         packages = {
           libraio = pkgs.callPackage ./nix/package.nix {};
-          libraio-cli = pkgs.callPackage ./nix/package-cli.nix {};
           default = self.packages.${system}.libraio;
         };
 

@@ -7,10 +7,10 @@ pkgs.buildGoModule {
 
   vendorHash = "sha256-6/WETwkyqYlE5lThsC3a+jO6bnqmnyjCN4l71vSUXak=";
 
-  subPackages = [ "cmd/libraio" ];
+  subPackages = [ "cmd/libraio" "cmd/libraio-cli" ];
 
   meta = with pkgs.lib; {
-    description = "TUI for managing Obsidian vaults with Johnny Decimal";
+    description = "TUI and CLI for managing Obsidian vaults with Johnny Decimal";
     homepage = "https://github.com/emiliopalmerini/libraio";
     license = licenses.mit;
     maintainers = [ ];

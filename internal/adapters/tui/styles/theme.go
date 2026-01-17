@@ -117,6 +117,10 @@ var (
 	// Muted text style (for using Muted color as a style)
 	MutedText = lipgloss.NewStyle().
 			Foreground(Muted)
+
+	// Spinner style
+	Spinner = lipgloss.NewStyle().
+		Foreground(Primary)
 )
 
 // ScopeColor returns the color for a scope ID

@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"libraio/internal/adapters/claudecli"
 	"libraio/internal/adapters/editor"
 	"libraio/internal/adapters/filesystem"
 	"libraio/internal/adapters/obsidian"
@@ -54,9 +55,10 @@ func main() {
 	}
 	editorOpener := editor.NewOpener()
 	obsidianOpener := obsidian.NewOpener(repo.VaultPath())
+	aiAssistant := claudecli.NewAssistant()
 
 	// Create and run TUI app
-	app := tui.NewApp(repo, editorOpener, obsidianOpener)
+	app := tui.NewApp(repo, editorOpener, obsidianOpener, aiAssistant)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 

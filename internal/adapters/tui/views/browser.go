@@ -21,18 +21,19 @@ import (
 
 // BrowserKeyMap defines key bindings for the browser view
 type BrowserKeyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	Enter    key.Binding
-	Obsidian key.Binding
-	Yank     key.Binding
-	New      key.Binding
-	Move     key.Binding
-	Archive  key.Binding
-	Delete   key.Binding
-	Search   key.Binding
-	Help     key.Binding
-	Quit     key.Binding
+	Up           key.Binding
+	Down         key.Binding
+	Enter        key.Binding
+	Obsidian     key.Binding
+	Yank         key.Binding
+	New          key.Binding
+	Move         key.Binding
+	Archive      key.Binding
+	Delete       key.Binding
+	SmartCatalog key.Binding
+	Search       key.Binding
+	Help         key.Binding
+	Quit         key.Binding
 }
 
 var BrowserKeys = BrowserKeyMap{
@@ -71,6 +72,10 @@ var BrowserKeys = BrowserKeyMap{
 	Delete: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "delete"),
+	),
+	SmartCatalog: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "smart catalog"),
 	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),
@@ -300,6 +305,25 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg {
 					return SwitchToDeleteMsg{TargetNode: node}
 				}
+			}
+			return m, nil
+
+		case key.Matches(msg, BrowserKeys.SmartCatalog):
+			// Return command to switch to smart catalog view (only for inbox items)
+			if node := m.selectedNode(); node != nil {
+				if node.Type == application.IDTypeItem {
+					// Only allow on inbox items (.01)
+					if domain.IsInboxItem(node.ID) {
+						return m, func() tea.Msg {
+							return SwitchToSmartCatalogMsg{SourceNode: node}
+						}
+					}
+					m.message = "Smart catalog only works on inbox items"
+					m.messageErr = true
+					return m, nil
+				}
+				m.message = "Smart catalog only works on inbox items"
+				m.messageErr = true
 			}
 			return m, nil
 
@@ -803,6 +827,12 @@ func (m *BrowserModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	m.ensureCursorVisible()
+}
+
+// SetMessage sets a message to display in the browser view
+func (m *BrowserModel) SetMessage(msg string, isErr bool) {
+	m.message = msg
+	m.messageErr = isErr
 }
 
 // treeViewHeight returns the number of lines available for the tree view

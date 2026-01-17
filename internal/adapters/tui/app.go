@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/editor"
@@ -8,6 +10,16 @@ import (
 	"libraio/internal/adapters/tui/views"
 	"libraio/internal/ports"
 )
+
+func formatMovedMessage(count int) string {
+	if count == 0 {
+		return "No files moved"
+	}
+	if count == 1 {
+		return "1 file moved"
+	}
+	return fmt.Sprintf("%d files moved", count)
+}
 
 // ViewState represents the current view
 type ViewState int
@@ -18,40 +30,45 @@ const (
 	ViewMove
 	ViewArchive
 	ViewDelete
+	ViewSmartCatalog
 	ViewHelp
 )
 
 // App is the main TUI application model
 type App struct {
-	repo     ports.VaultRepository
-	editor   *editor.Opener
-	obsidian *obsidian.Opener
+	repo      ports.VaultRepository
+	editor    *editor.Opener
+	obsidian  *obsidian.Opener
+	assistant ports.AIAssistant
 
-	state   ViewState
-	browser *views.BrowserModel
-	create  *views.CreateModel
-	move    *views.MoveModel
-	archive *views.ArchiveModel
-	delete  *views.DeleteModel
-	help    *views.HelpModel
+	state        ViewState
+	browser      *views.BrowserModel
+	create       *views.CreateModel
+	move         *views.MoveModel
+	archive      *views.ArchiveModel
+	delete       *views.DeleteModel
+	smartCatalog *views.SmartCatalogModel
+	help         *views.HelpModel
 
 	width  int
 	height int
 }
 
 // NewApp creates a new TUI application
-func NewApp(repo ports.VaultRepository, ed *editor.Opener, obs *obsidian.Opener) *App {
+func NewApp(repo ports.VaultRepository, ed *editor.Opener, obs *obsidian.Opener, assistant ports.AIAssistant) *App {
 	return &App{
-		repo:     repo,
-		editor:   ed,
-		obsidian: obs,
-		state:    ViewBrowser,
-		browser:  views.NewBrowserModel(repo),
-		create:   views.NewCreateModel(repo, ed != nil),
-		move:     views.NewMoveModel(repo),
-		archive:  views.NewArchiveModel(repo),
-		delete:   views.NewDeleteModel(repo),
-		help:     views.NewHelpModel(),
+		repo:         repo,
+		editor:       ed,
+		obsidian:     obs,
+		assistant:    assistant,
+		state:        ViewBrowser,
+		browser:      views.NewBrowserModel(repo),
+		create:       views.NewCreateModel(repo, ed != nil),
+		move:         views.NewMoveModel(repo),
+		archive:      views.NewArchiveModel(repo),
+		delete:       views.NewDeleteModel(repo),
+		smartCatalog: views.NewSmartCatalogModel(repo, assistant),
+		help:         views.NewHelpModel(),
 	}
 }
 
@@ -71,6 +88,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.move.SetSize(msg.Width, msg.Height)
 		a.archive.SetSize(msg.Width, msg.Height)
 		a.delete.SetSize(msg.Width, msg.Height)
+		a.smartCatalog.SetSize(msg.Width, msg.Height)
 		a.help.SetSize(msg.Width, msg.Height)
 		return a, nil
 
@@ -94,6 +112,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = ViewDelete
 		a.delete.SetTarget(msg.TargetNode)
 		return a, a.delete.Init()
+
+	case views.SwitchToSmartCatalogMsg:
+		a.state = ViewSmartCatalog
+		a.smartCatalog.SetSource(msg.SourceNode)
+		return a, a.smartCatalog.Init()
 
 	case views.SwitchToSearchMsg:
 		// Search is now inline in browser, no need to switch
@@ -145,6 +168,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = ViewBrowser
 		return a, nil
 
+	// Smart catalog view messages
+	case views.SmartCatalogFileMoved:
+		// File was moved, update the moved count and remove from list
+		a.smartCatalog.HandleFileMoved()
+		// Check if all files have been processed
+		if a.smartCatalog.IsEmpty() {
+			a.state = ViewBrowser
+			a.browser.SetMessage(formatMovedMessage(a.smartCatalog.GetMovedCount()), false)
+			return a, a.browser.Reload()
+		}
+		return a, nil
+
+	case views.SmartCatalogDoneMsg:
+		// All done, return to browser
+		a.state = ViewBrowser
+		a.browser.SetMessage(formatMovedMessage(msg.Moved), false)
+		return a, a.browser.Reload()
+
+	case views.SmartCatalogErrMsg:
+		// Return to browser on error
+		a.state = ViewBrowser
+		return a, nil
+
 	case views.OpenEditorMsg:
 		// Return to browser, then open editor
 		a.state = ViewBrowser
@@ -173,6 +219,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd = a.archive.Update(msg)
 	case ViewDelete:
 		_, cmd = a.delete.Update(msg)
+	case ViewSmartCatalog:
+		_, cmd = a.smartCatalog.Update(msg)
 	case ViewHelp:
 		_, cmd = a.help.Update(msg)
 	}
@@ -224,6 +272,8 @@ func (a *App) View() string {
 		return a.archive.View()
 	case ViewDelete:
 		return a.delete.View()
+	case ViewSmartCatalog:
+		return a.smartCatalog.View()
 	case ViewHelp:
 		return a.help.View()
 	default:

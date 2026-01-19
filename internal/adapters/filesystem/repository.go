@@ -1058,19 +1058,25 @@ func (r *Repository) GetJDexPath(itemID string) (string, error) {
 
 // Helper methods for finding paths
 
-func (r *Repository) findScopePath(scopeID string) (string, error) {
-	entries, err := os.ReadDir(r.vaultPath)
+// findPathInDir looks for a directory in parentPath that starts with "id "
+func findPathInDir(parentPath, id, entityType string) (string, error) {
+	entries, err := os.ReadDir(parentPath)
 	if err != nil {
 		return "", err
 	}
 
+	prefix := id + " "
 	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), scopeID+" ") {
-			return filepath.Join(r.vaultPath, entry.Name()), nil
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) {
+			return filepath.Join(parentPath, entry.Name()), nil
 		}
 	}
 
-	return "", fmt.Errorf("scope not found: %s", scopeID)
+	return "", fmt.Errorf("%s not found: %s", entityType, id)
+}
+
+func (r *Repository) findScopePath(scopeID string) (string, error) {
+	return findPathInDir(r.vaultPath, scopeID, "scope")
 }
 
 func (r *Repository) findAreaPath(areaID string) (string, error) {
@@ -1078,24 +1084,11 @@ func (r *Repository) findAreaPath(areaID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	scopePath, err := r.findScopePath(scopeID)
 	if err != nil {
 		return "", err
 	}
-
-	entries, err := os.ReadDir(scopePath)
-	if err != nil {
-		return "", err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), areaID+" ") {
-			return filepath.Join(scopePath, entry.Name()), nil
-		}
-	}
-
-	return "", fmt.Errorf("area not found: %s", areaID)
+	return findPathInDir(scopePath, areaID, "area")
 }
 
 func (r *Repository) findCategoryPath(categoryID string) (string, error) {
@@ -1103,24 +1096,11 @@ func (r *Repository) findCategoryPath(categoryID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	areaPath, err := r.findAreaPath(areaID)
 	if err != nil {
 		return "", err
 	}
-
-	entries, err := os.ReadDir(areaPath)
-	if err != nil {
-		return "", err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), categoryID+" ") {
-			return filepath.Join(areaPath, entry.Name()), nil
-		}
-	}
-
-	return "", fmt.Errorf("category not found: %s", categoryID)
+	return findPathInDir(areaPath, categoryID, "category")
 }
 
 func (r *Repository) findItemPath(itemID string) (string, error) {
@@ -1128,22 +1108,9 @@ func (r *Repository) findItemPath(itemID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	categoryPath, err := r.findCategoryPath(categoryID)
 	if err != nil {
 		return "", err
 	}
-
-	entries, err := os.ReadDir(categoryPath)
-	if err != nil {
-		return "", err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), itemID+" ") {
-			return filepath.Join(categoryPath, entry.Name()), nil
-		}
-	}
-
-	return "", fmt.Errorf("item not found: %s", itemID)
+	return findPathInDir(categoryPath, itemID, "item")
 }

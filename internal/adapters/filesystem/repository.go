@@ -724,23 +724,42 @@ func (r *Repository) updateVaultLinks(replacements []LinkReplacement) {
 		}
 
 		contentStr := string(content)
-		originalContent := contentStr
+		updated := applyLinkReplacements(contentStr, replacements)
 
-		for _, repl := range replacements {
-			if repl.IsRegex {
-				re := regexp.MustCompile(repl.Old)
-				contentStr = re.ReplaceAllString(contentStr, repl.New)
-			} else {
-				contentStr = strings.ReplaceAll(contentStr, repl.Old, repl.New)
-			}
-		}
-
-		if contentStr != originalContent {
-			_ = os.WriteFile(path, []byte(contentStr), 0644) // Best-effort write
+		if updated != contentStr {
+			_ = os.WriteFile(path, []byte(updated), 0644) // Best-effort write
 		}
 
 		return nil
 	})
+}
+
+// buildLinkReplacements creates the standard set of wiki link replacements for renaming/moving items.
+// It handles all Obsidian link formats: [[ID Name]], [[ID]], [[ID|Alias]], [[ID Name|Alias]]
+func buildLinkReplacements(oldID, description, newLinkText, newAliasPrefix string) []LinkReplacement {
+	return []LinkReplacement{
+		// [[S01.11.15 Theatre]] -> new link
+		{Old: fmt.Sprintf("[[%s %s]]", oldID, description), New: newLinkText},
+		// [[S01.11.15]] -> new link
+		{Old: fmt.Sprintf("[[%s]]", oldID), New: newLinkText},
+		// [[S01.11.15|Custom]] -> [[new|Custom]]
+		{Old: `\[\[` + regexp.QuoteMeta(oldID) + `\|`, New: newAliasPrefix, IsRegex: true},
+		// [[S01.11.15 Theatre|Custom]] -> [[new|Custom]]
+		{Old: `\[\[` + regexp.QuoteMeta(oldID+" "+description) + `\|`, New: newAliasPrefix, IsRegex: true},
+	}
+}
+
+// applyLinkReplacements applies a set of link replacements to content
+func applyLinkReplacements(content string, replacements []LinkReplacement) string {
+	for _, repl := range replacements {
+		if repl.IsRegex {
+			re := regexp.MustCompile(repl.Old)
+			content = re.ReplaceAllString(content, repl.New)
+		} else {
+			content = strings.ReplaceAll(content, repl.Old, repl.New)
+		}
+	}
+	return content
 }
 
 // updateObsidianLinksForArchive updates all wiki links when archiving (adds [Archived] prefix)
@@ -748,30 +767,21 @@ func (r *Repository) updateVaultLinks(replacements []LinkReplacement) {
 func (r *Repository) updateObsidianLinksForArchive(oldID, description string) {
 	archivedName := "[Archived] " + description
 	newLink := fmt.Sprintf("[[%s]]", archivedName)
+	newAliasPrefix := fmt.Sprintf("[[%s|", archivedName)
 
-	replacements := []LinkReplacement{
-		// [[S01.11.15 Theatre]] -> [[[Archived] Theatre]]
-		{Old: fmt.Sprintf("[[%s %s]]", oldID, description), New: newLink},
-		// [[S01.11.15]] -> [[[Archived] Theatre]]
-		{Old: fmt.Sprintf("[[%s]]", oldID), New: newLink},
-		// [[S01.11.15|Custom]] -> [[[Archived] Theatre|Custom]]
-		{Old: `\[\[` + regexp.QuoteMeta(oldID) + `\|`, New: fmt.Sprintf("[[%s|", archivedName), IsRegex: true},
-		// [[S01.11.15 Theatre|Custom]] -> [[[Archived] Theatre|Custom]]
-		{Old: `\[\[` + regexp.QuoteMeta(oldID+" "+description) + `\|`, New: fmt.Sprintf("[[%s|", archivedName), IsRegex: true},
-	}
-
-	r.updateVaultLinks(replacements)
+	r.updateVaultLinks(buildLinkReplacements(oldID, description, newLink, newAliasPrefix))
 }
 
 // updateObsidianLinksWithCache updates wiki links using the index if available
 func (r *Repository) updateObsidianLinksWithCache(oldID, newID, description string) {
+	newFullLink := fmt.Sprintf("[[%s %s]]", newID, description)
+	newAliasPrefix := fmt.Sprintf("[[%s %s|", newID, description)
+	replacements := buildLinkReplacements(oldID, description, newFullLink, newAliasPrefix)
+
 	if r.index != nil {
 		// Use indexed lookup for O(k) performance where k = files with links
 		edges, err := r.index.FindLinksToID(oldID)
 		if err == nil && len(edges) > 0 {
-			newFullLink := fmt.Sprintf("[[%s %s]]", newID, description)
-			newAliasPrefix := fmt.Sprintf("[[%s %s|", newID, description)
-
 			for _, edge := range edges {
 				fullPath := filepath.Join(r.vaultPath, edge.SourcePath)
 				content, err := os.ReadFile(fullPath)
@@ -780,20 +790,10 @@ func (r *Repository) updateObsidianLinksWithCache(oldID, newID, description stri
 				}
 
 				contentStr := string(content)
-				originalContent := contentStr
+				updated := applyLinkReplacements(contentStr, replacements)
 
-				// Apply replacements
-				contentStr = strings.ReplaceAll(contentStr, fmt.Sprintf("[[%s %s]]", oldID, description), newFullLink)
-				contentStr = strings.ReplaceAll(contentStr, fmt.Sprintf("[[%s]]", oldID), newFullLink)
-
-				// Handle aliased links with regex
-				re1 := regexp.MustCompile(`\[\[` + regexp.QuoteMeta(oldID) + `\|`)
-				contentStr = re1.ReplaceAllString(contentStr, newAliasPrefix)
-				re2 := regexp.MustCompile(`\[\[` + regexp.QuoteMeta(oldID+" "+description) + `\|`)
-				contentStr = re2.ReplaceAllString(contentStr, newAliasPrefix)
-
-				if contentStr != originalContent {
-					_ = os.WriteFile(fullPath, []byte(contentStr), 0644) // Best-effort write
+				if updated != contentStr {
+					_ = os.WriteFile(fullPath, []byte(updated), 0644) // Best-effort write
 				}
 			}
 
@@ -815,18 +815,7 @@ func (r *Repository) updateObsidianLinks(oldID, newID, description string) {
 	newFullLink := fmt.Sprintf("[[%s %s]]", newID, description)
 	newAliasPrefix := fmt.Sprintf("[[%s %s|", newID, description)
 
-	replacements := []LinkReplacement{
-		// [[S01.11.15 Theatre]] -> [[S01.19.11 Theatre]]
-		{Old: fmt.Sprintf("[[%s %s]]", oldID, description), New: newFullLink},
-		// [[S01.11.15]] -> [[S01.19.11 Theatre]]
-		{Old: fmt.Sprintf("[[%s]]", oldID), New: newFullLink},
-		// [[S01.11.15|Custom]] -> [[S01.19.11 Theatre|Custom]]
-		{Old: `\[\[` + regexp.QuoteMeta(oldID) + `\|`, New: newAliasPrefix, IsRegex: true},
-		// [[S01.11.15 Theatre|Custom]] -> [[S01.19.11 Theatre|Custom]]
-		{Old: `\[\[` + regexp.QuoteMeta(oldID+" "+description) + `\|`, New: newAliasPrefix, IsRegex: true},
-	}
-
-	r.updateVaultLinks(replacements)
+	r.updateVaultLinks(buildLinkReplacements(oldID, description, newFullLink, newAliasPrefix))
 }
 
 // Delete removes an item, category, area, or scope by ID

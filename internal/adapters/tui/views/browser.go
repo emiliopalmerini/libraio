@@ -224,24 +224,7 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, BrowserKeys.Enter):
-			if node := m.selectedNode(); node != nil {
-				if node.Type == application.IDTypeItem {
-					// Open JDex file in editor
-					jdexPath := m.getJDexPath(node)
-					return m, func() tea.Msg {
-						return OpenEditorMsg{Path: jdexPath}
-					}
-				}
-				// Toggle expand/collapse for non-items
-				if !node.IsExpanded {
-					node.Expand()
-					return m, m.loadNodeChildren(node)
-				} else {
-					node.Collapse()
-					m.refreshFlatNodes()
-				}
-			}
-			return m, nil
+			return m.handleEnter()
 
 		case key.Matches(msg, BrowserKeys.Obsidian):
 			if node := m.selectedNode(); node != nil {
@@ -283,18 +266,7 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, BrowserKeys.Archive):
-			// Return command to switch to archive view (only for items and non-archive categories)
-			if node := m.selectedNode(); node != nil {
-				eligibility := commands.CheckArchiveEligibility(node.ID, node.Type)
-				if eligibility.CanArchive {
-					return m, func() tea.Msg {
-						return SwitchToArchiveMsg{TargetNode: node}
-					}
-				}
-				m.Message = eligibility.Reason
-				m.MessageErr = true
-			}
-			return m, nil
+			return m.handleArchive()
 
 		case key.Matches(msg, BrowserKeys.Delete):
 			// Return command to switch to delete view
@@ -306,23 +278,7 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, BrowserKeys.SmartCatalog):
-			// Return command to switch to smart catalog view (only for inbox items)
-			if node := m.selectedNode(); node != nil {
-				if node.Type == application.IDTypeItem {
-					// Only allow on inbox items (.01)
-					if domain.IsInboxItem(node.ID) {
-						return m, func() tea.Msg {
-							return SwitchToSmartCatalogMsg{SourceNode: node}
-						}
-					}
-					m.Message = "Smart catalog only works on inbox items"
-					m.MessageErr = true
-					return m, nil
-				}
-				m.Message = "Smart catalog only works on inbox items"
-				m.MessageErr = true
-			}
-			return m, nil
+			return m.handleSmartCatalog()
 
 		case key.Matches(msg, BrowserKeys.Search):
 			m.searchMode = true
@@ -340,6 +296,73 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// handleEnter handles the enter/space key to open items or toggle expansion
+func (m *BrowserModel) handleEnter() (tea.Model, tea.Cmd) {
+	node := m.selectedNode()
+	if node == nil {
+		return m, nil
+	}
+
+	if node.Type == application.IDTypeItem {
+		// Open JDex file in editor
+		jdexPath := m.getJDexPath(node)
+		return m, func() tea.Msg {
+			return OpenEditorMsg{Path: jdexPath}
+		}
+	}
+
+	// Toggle expand/collapse for non-items
+	if !node.IsExpanded {
+		node.Expand()
+		return m, m.loadNodeChildren(node)
+	}
+	node.Collapse()
+	m.refreshFlatNodes()
+	return m, nil
+}
+
+// handleArchive handles the archive key
+func (m *BrowserModel) handleArchive() (tea.Model, tea.Cmd) {
+	node := m.selectedNode()
+	if node == nil {
+		return m, nil
+	}
+
+	eligibility := commands.CheckArchiveEligibility(node.ID, node.Type)
+	if eligibility.CanArchive {
+		return m, func() tea.Msg {
+			return SwitchToArchiveMsg{TargetNode: node}
+		}
+	}
+	m.Message = eligibility.Reason
+	m.MessageErr = true
+	return m, nil
+}
+
+// handleSmartCatalog handles the smart catalog key
+func (m *BrowserModel) handleSmartCatalog() (tea.Model, tea.Cmd) {
+	node := m.selectedNode()
+	if node == nil {
+		return m, nil
+	}
+
+	if node.Type != application.IDTypeItem {
+		m.Message = "Smart catalog only works on inbox items"
+		m.MessageErr = true
+		return m, nil
+	}
+
+	if !domain.IsInboxItem(node.ID) {
+		m.Message = "Smart catalog only works on inbox items"
+		m.MessageErr = true
+		return m, nil
+	}
+
+	return m, func() tea.Msg {
+		return SwitchToSmartCatalogMsg{SourceNode: node}
+	}
 }
 
 func (m *BrowserModel) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

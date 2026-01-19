@@ -1,5 +1,7 @@
 package domain
 
+import "slices"
+
 // Scope represents a top-level scope in the vault (S00, S01, S02, S03)
 type Scope struct {
 	ID          string // e.g., "S00"
@@ -97,4 +99,56 @@ func (n *TreeNode) Expand() {
 // Collapse sets the node as collapsed
 func (n *TreeNode) Collapse() {
 	n.IsExpanded = false
+}
+
+// SortScopes sorts scopes by ID in ascending order
+func SortScopes(scopes []Scope) {
+	slices.SortFunc(scopes, func(a, b Scope) int {
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
+}
+
+// SortAreas sorts areas by ID in ascending order
+func SortAreas(areas []Area) {
+	slices.SortFunc(areas, func(a, b Area) int {
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
+}
+
+// SortCategories sorts categories by ID in ascending order
+func SortCategories(categories []Category) {
+	slices.SortFunc(categories, func(a, b Category) int {
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
+}
+
+// SortItems sorts items by ID in ascending order
+func SortItems(items []Item) {
+	slices.SortFunc(items, func(a, b Item) int {
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
 }

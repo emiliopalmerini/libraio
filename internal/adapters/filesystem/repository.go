@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"libraio/internal/domain"
@@ -147,9 +146,7 @@ func (r *Repository) ListScopes() ([]domain.Scope, error) {
 		})
 	}
 
-	sort.Slice(scopes, func(i, j int) bool {
-		return scopes[i].ID < scopes[j].ID
-	})
+	domain.SortScopes(scopes)
 
 	return scopes, nil
 }
@@ -186,9 +183,7 @@ func (r *Repository) ListAreas(scopeID string) ([]domain.Area, error) {
 		})
 	}
 
-	sort.Slice(areas, func(i, j int) bool {
-		return areas[i].ID < areas[j].ID
-	})
+	domain.SortAreas(areas)
 
 	return areas, nil
 }
@@ -225,9 +220,7 @@ func (r *Repository) ListCategories(areaID string) ([]domain.Category, error) {
 		})
 	}
 
-	sort.Slice(categories, func(i, j int) bool {
-		return categories[i].ID < categories[j].ID
-	})
+	domain.SortCategories(categories)
 
 	return categories, nil
 }
@@ -267,9 +260,7 @@ func (r *Repository) ListItems(categoryID string) ([]domain.Item, error) {
 		})
 	}
 
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].ID < items[j].ID
-	})
+	domain.SortItems(items)
 
 	return items, nil
 }

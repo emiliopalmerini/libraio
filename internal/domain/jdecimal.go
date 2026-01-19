@@ -33,11 +33,21 @@ func (t IDType) String() string {
 	}
 }
 
+// ID-only regex patterns (for validation)
 var (
 	scopeRegex    = regexp.MustCompile(`^S0[0-9]$`)
 	areaRegex     = regexp.MustCompile(`^S0[0-9]\.[0-9]0-[0-9]9$`)
 	categoryRegex = regexp.MustCompile(`^S0[0-9]\.[0-9][0-9]$`)
 	itemRegex     = regexp.MustCompile(`^S0[0-9]\.[0-9][0-9]\.[0-9][0-9]$`)
+)
+
+// Folder name regex patterns (with description capture groups)
+// These are exported for use by adapters that need to parse folder names
+var (
+	ScopeFolderRegex    = regexp.MustCompile(`^(S0[0-9]) (.+)$`)
+	AreaFolderRegex     = regexp.MustCompile(`^(S0[0-9]\.[0-9]0-[0-9]9) (.+)$`)
+	CategoryFolderRegex = regexp.MustCompile(`^(S0[0-9]\.[0-9][0-9]) (.+)$`)
+	ItemFolderRegex     = regexp.MustCompile(`^(S0[0-9]\.[0-9][0-9]\.[0-9][0-9]) (.+)$`)
 )
 
 // StandardZero represents a standard zero item definition

@@ -125,14 +125,13 @@ func (r *Repository) ListScopes() ([]domain.Scope, error) {
 	}
 
 	var scopes []domain.Scope
-	scopeRegex := regexp.MustCompile(`^(S0[0-9]) (.+)$`)
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
-		matches := scopeRegex.FindStringSubmatch(entry.Name())
+		matches := domain.ScopeFolderRegex.FindStringSubmatch(entry.Name())
 		if matches == nil {
 			continue
 		}
@@ -164,14 +163,13 @@ func (r *Repository) ListAreas(scopeID string) ([]domain.Area, error) {
 	}
 
 	var areas []domain.Area
-	areaRegex := regexp.MustCompile(`^(S0[0-9]\.[0-9]0-[0-9]9) (.+)$`)
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
-		matches := areaRegex.FindStringSubmatch(entry.Name())
+		matches := domain.AreaFolderRegex.FindStringSubmatch(entry.Name())
 		if matches == nil {
 			continue
 		}
@@ -204,14 +202,13 @@ func (r *Repository) ListCategories(areaID string) ([]domain.Category, error) {
 	}
 
 	var categories []domain.Category
-	categoryRegex := regexp.MustCompile(`^(S0[0-9]\.[0-9][0-9]) (.+)$`)
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
-		matches := categoryRegex.FindStringSubmatch(entry.Name())
+		matches := domain.CategoryFolderRegex.FindStringSubmatch(entry.Name())
 		if matches == nil {
 			continue
 		}
@@ -244,14 +241,13 @@ func (r *Repository) ListItems(categoryID string) ([]domain.Item, error) {
 	}
 
 	var items []domain.Item
-	itemRegex := regexp.MustCompile(`^(S0[0-9]\.[0-9][0-9]\.[0-9][0-9]) (.+)$`)
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
-		matches := itemRegex.FindStringSubmatch(entry.Name())
+		matches := domain.ItemFolderRegex.FindStringSubmatch(entry.Name())
 		if matches == nil {
 			continue
 		}
@@ -496,14 +492,12 @@ func (r *Repository) updateItemIDsInCategory(categoryPath, _, newCategoryID stri
 		return
 	}
 
-	itemRegex := regexp.MustCompile(`^(S0[0-9]\.[0-9][0-9]\.[0-9][0-9]) (.+)$`)
-
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 
-		matches := itemRegex.FindStringSubmatch(entry.Name())
+		matches := domain.ItemFolderRegex.FindStringSubmatch(entry.Name())
 		if matches == nil {
 			continue
 		}

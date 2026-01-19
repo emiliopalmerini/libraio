@@ -34,13 +34,10 @@ var MoveKeys = MoveKeyMap{
 
 // MoveModel is the model for the move view
 type MoveModel struct {
+	ViewState
 	repo       ports.VaultRepository
 	sourceNode *application.TreeNode
 	destInput  textinput.Model
-	message    string
-	messageErr bool
-	width      int
-	height     int
 }
 
 // NewMoveModel creates a new move view model
@@ -58,8 +55,8 @@ func NewMoveModel(repo ports.VaultRepository) *MoveModel {
 // SetSource sets the source node for the move operation
 func (m *MoveModel) SetSource(node *application.TreeNode) {
 	m.sourceNode = node
-	m.message = ""
-	m.messageErr = false
+	m.Message = ""
+	m.MessageErr = false
 	m.destInput.SetValue("")
 	m.destInput.Focus()
 }
@@ -73,8 +70,8 @@ func (m *MoveModel) Init() tea.Cmd {
 func (m *MoveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.Width = msg.Width
+		m.Height = msg.Height
 		return m, nil
 
 	case tea.KeyMsg:
@@ -177,11 +174,11 @@ func (m *MoveModel) View() string {
 	b.WriteString("\n\n")
 
 	// Message
-	if m.message != "" {
-		if m.messageErr {
-			b.WriteString(styles.ErrorMsg.Render(m.message))
+	if m.Message != "" {
+		if m.MessageErr {
+			b.WriteString(styles.ErrorMsg.Render(m.Message))
 		} else {
-			b.WriteString(styles.Success.Render(m.message))
+			b.WriteString(styles.Success.Render(m.Message))
 		}
 		b.WriteString("\n\n")
 	}
@@ -197,14 +194,3 @@ func (m *MoveModel) View() string {
 	return styles.App.Render(b.String())
 }
 
-// SetMessage sets a message to display
-func (m *MoveModel) SetMessage(msg string, isErr bool) {
-	m.message = msg
-	m.messageErr = isErr
-}
-
-// SetSize updates the view dimensions
-func (m *MoveModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-}

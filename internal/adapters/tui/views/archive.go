@@ -33,10 +33,9 @@ var ArchiveKeys = ArchiveKeyMap{
 
 // ArchiveModel is the model for the archive confirmation view
 type ArchiveModel struct {
+	ViewState
 	repo       ports.VaultRepository
 	targetNode *application.TreeNode
-	width      int
-	height     int
 }
 
 // NewArchiveModel creates a new archive view model
@@ -60,8 +59,8 @@ func (m *ArchiveModel) Init() tea.Cmd {
 func (m *ArchiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.Width = msg.Width
+		m.Height = msg.Height
 		return m, nil
 
 	case tea.KeyMsg:
@@ -194,8 +193,3 @@ func (m *ArchiveModel) View() string {
 	return styles.App.Render(b.String())
 }
 
-// SetSize updates the view dimensions
-func (m *ArchiveModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-}

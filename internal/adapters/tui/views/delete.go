@@ -31,10 +31,9 @@ var DeleteKeys = DeleteKeyMap{
 
 // DeleteModel is the model for the delete confirmation view
 type DeleteModel struct {
+	ViewState
 	repo       ports.VaultRepository
 	targetNode *application.TreeNode
-	width      int
-	height     int
 }
 
 // NewDeleteModel creates a new delete view model
@@ -58,8 +57,8 @@ func (m *DeleteModel) Init() tea.Cmd {
 func (m *DeleteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.Width = msg.Width
+		m.Height = msg.Height
 		return m, nil
 
 	case tea.KeyMsg:
@@ -151,8 +150,3 @@ func (m *DeleteModel) View() string {
 	return styles.App.Render(b.String())
 }
 
-// SetSize updates the view dimensions
-func (m *DeleteModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-}

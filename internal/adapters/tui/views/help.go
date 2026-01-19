@@ -23,8 +23,7 @@ var HelpKeys = HelpKeyMap{
 
 // HelpModel is the model for the help view
 type HelpModel struct {
-	width  int
-	height int
+	ViewState
 }
 
 // NewHelpModel creates a new help view model
@@ -41,8 +40,8 @@ func (m *HelpModel) Init() tea.Cmd {
 func (m *HelpModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.Width = msg.Width
+		m.Height = msg.Height
 		return m, nil
 
 	case tea.KeyMsg:
@@ -122,8 +121,3 @@ func padRight(s string, length int) string {
 	return s + strings.Repeat(" ", length-len(s))
 }
 
-// SetSize updates the view dimensions
-func (m *HelpModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-}

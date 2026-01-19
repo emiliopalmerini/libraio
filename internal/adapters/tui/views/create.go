@@ -47,6 +47,7 @@ const (
 
 // CreateModel is the model for the create view
 type CreateModel struct {
+	ViewState
 	repo         ports.VaultRepository
 	openInEditor bool
 	parentNode   *application.TreeNode
@@ -54,10 +55,6 @@ type CreateModel struct {
 	descInput    textinput.Model
 	parentInput  textinput.Model
 	focusedField int
-	message      string
-	messageErr   bool
-	width        int
-	height       int
 }
 
 // NewCreateModel creates a new create view model
@@ -81,8 +78,8 @@ func NewCreateModel(repo ports.VaultRepository, openInEditor bool) *CreateModel 
 // SetParent sets the parent node for creation
 func (m *CreateModel) SetParent(node *application.TreeNode) {
 	m.parentNode = node
-	m.message = ""
-	m.messageErr = false
+	m.Message = ""
+	m.MessageErr = false
 
 	// Determine mode and prefill parent
 	switch node.Type {
@@ -115,8 +112,8 @@ func (m *CreateModel) Init() tea.Cmd {
 func (m *CreateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.Width = msg.Width
+		m.Height = msg.Height
 		return m, nil
 
 	case tea.KeyMsg:
@@ -258,11 +255,11 @@ func (m *CreateModel) View() string {
 	b.WriteString("\n\n")
 
 	// Message
-	if m.message != "" {
-		if m.messageErr {
-			b.WriteString(styles.ErrorMsg.Render(m.message))
+	if m.Message != "" {
+		if m.MessageErr {
+			b.WriteString(styles.ErrorMsg.Render(m.Message))
 		} else {
-			b.WriteString(styles.Success.Render(m.message))
+			b.WriteString(styles.Success.Render(m.Message))
 		}
 		b.WriteString("\n\n")
 	}
@@ -280,14 +277,3 @@ func (m *CreateModel) View() string {
 	return styles.App.Render(b.String())
 }
 
-// SetMessage sets a message to display
-func (m *CreateModel) SetMessage(msg string, isErr bool) {
-	m.message = msg
-	m.messageErr = isErr
-}
-
-// SetSize updates the view dimensions
-func (m *CreateModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-}

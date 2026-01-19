@@ -93,15 +93,12 @@ var BrowserKeys = BrowserKeyMap{
 
 // BrowserModel is the model for the tree browser view
 type BrowserModel struct {
-	repo       ports.VaultRepository
-	root       *application.TreeNode
-	flatNodes  []*application.TreeNode
-	cursor     int
-	viewport   int // viewport offset (first visible line)
-	width      int
-	height     int
-	message    string
-	messageErr bool
+	ViewState
+	repo      ports.VaultRepository
+	root      *application.TreeNode
+	flatNodes []*application.TreeNode
+	cursor    int
+	viewport  int // viewport offset (first visible line)
 
 	// Search mode
 	searchMode    bool
@@ -159,8 +156,8 @@ type successMsg struct {
 func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.Width = msg.Width
+		m.Height = msg.Height
 		return m, nil
 
 	case treeLoadedMsg:
@@ -191,17 +188,17 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case errMsg:
-		m.message = msg.err.Error()
-		m.messageErr = true
+		m.Message = msg.err.Error()
+		m.MessageErr = true
 		return m, nil
 
 	case successMsg:
-		m.message = msg.message
-		m.messageErr = false
+		m.Message = msg.message
+		m.MessageErr = false
 		return m, m.Reload()
 
 	case tea.KeyMsg:
-		m.message = "" // Clear message on key press
+		m.Message = "" // Clear message on key press
 
 		// Search mode handling
 		if m.searchMode {
@@ -260,8 +257,8 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, BrowserKeys.Yank):
 			if node := m.selectedNode(); node != nil {
 				clipboard.WriteAll(node.ID)
-				m.message = fmt.Sprintf("Yanked: %s", node.ID)
-				m.messageErr = false
+				m.Message = fmt.Sprintf("Yanked: %s", node.ID)
+				m.MessageErr = false
 			}
 			return m, nil
 
@@ -294,8 +291,8 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return SwitchToArchiveMsg{TargetNode: node}
 					}
 				}
-				m.message = eligibility.Reason
-				m.messageErr = true
+				m.Message = eligibility.Reason
+				m.MessageErr = true
 			}
 			return m, nil
 
@@ -318,12 +315,12 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return SwitchToSmartCatalogMsg{SourceNode: node}
 						}
 					}
-					m.message = "Smart catalog only works on inbox items"
-					m.messageErr = true
+					m.Message = "Smart catalog only works on inbox items"
+					m.MessageErr = true
 					return m, nil
 				}
-				m.message = "Smart catalog only works on inbox items"
-				m.messageErr = true
+				m.Message = "Smart catalog only works on inbox items"
+				m.MessageErr = true
 			}
 			return m, nil
 
@@ -359,8 +356,8 @@ func (m *BrowserModel) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		query := m.searchInput.Value()
 		m.searchInput.SetValue("")
 		if len(m.searchMatches) > 0 {
-			m.message = fmt.Sprintf("/%s [%d/%d]", query, m.searchIndex+1, len(m.searchMatches))
-			m.messageErr = false
+			m.Message = fmt.Sprintf("/%s [%d/%d]", query, m.searchIndex+1, len(m.searchMatches))
+			m.MessageErr = false
 		}
 		return m, nil
 
@@ -388,8 +385,8 @@ func (m *BrowserModel) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "y" && len(m.searchMatches) > 0 {
 		result := m.searchMatches[m.searchIndex]
 		clipboard.WriteAll(result.ID)
-		m.message = fmt.Sprintf("Yanked: %s", result.ID)
-		m.messageErr = false
+		m.Message = fmt.Sprintf("Yanked: %s", result.ID)
+		m.MessageErr = false
 		return m, nil
 	}
 
@@ -673,12 +670,12 @@ func (m *BrowserModel) View() string {
 	}
 
 	// Message
-	if m.message != "" {
+	if m.Message != "" {
 		b.WriteString("\n")
-		if m.messageErr {
-			b.WriteString(styles.ErrorMsg.Render(m.message))
+		if m.MessageErr {
+			b.WriteString(styles.ErrorMsg.Render(m.Message))
 		} else {
-			b.WriteString(styles.Success.Render(m.message))
+			b.WriteString(styles.Success.Render(m.Message))
 		}
 	}
 
@@ -824,21 +821,16 @@ func (m *BrowserModel) renderHelpLine() string {
 
 // SetSize updates the view dimensions
 func (m *BrowserModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
+	m.Width = width
+	m.Height = height
 	m.ensureCursorVisible()
 }
 
-// SetMessage sets a message to display in the browser view
-func (m *BrowserModel) SetMessage(msg string, isErr bool) {
-	m.message = msg
-	m.messageErr = isErr
-}
 
 // treeViewHeight returns the number of lines available for the tree view
 func (m *BrowserModel) treeViewHeight() int {
 	// Subtract: title (1) + subtitle (1) + blank line (1) + footer area (3)
-	available := m.height - 6
+	available := m.Height - 6
 	if available < 1 {
 		return 1
 	}

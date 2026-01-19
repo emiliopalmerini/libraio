@@ -65,6 +65,7 @@ type FileSuggestion struct {
 
 // SmartCatalogModel is the model for the smart catalog view
 type SmartCatalogModel struct {
+	ViewState
 	repo        ports.VaultRepository
 	assistant   ports.AIAssistant
 	inboxNode   *application.TreeNode // The inbox item node
@@ -74,8 +75,6 @@ type SmartCatalogModel struct {
 	state       SmartCatalogState
 	err         error
 	spinner     spinner.Model
-	width       int
-	height      int
 }
 
 // NewSmartCatalogModel creates a new smart catalog view model
@@ -305,8 +304,8 @@ func buildVaultContextForLevel(repo ports.VaultRepository, parentID string, leve
 func (m *SmartCatalogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.Width = msg.Width
+		m.Height = msg.Height
 		return m, nil
 
 	case spinner.TickMsg:
@@ -518,11 +517,6 @@ func (m *SmartCatalogModel) View() string {
 	return styles.App.Render(b.String())
 }
 
-// SetSize updates the view dimensions
-func (m *SmartCatalogModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-}
 
 // HandleFileMoved processes a successful file move
 func (m *SmartCatalogModel) HandleFileMoved() {

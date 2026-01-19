@@ -38,7 +38,8 @@ type LinkReplacement struct {
 // updateJDexFile finds and updates a JDex file (or legacy README.md) in the given directory.
 // It looks for the old JDex file or README.md, applies the transform function, writes to newJDexPath,
 // and removes the old file if different from the new path.
-func updateJDexFile(dstPath, oldFolderName, newJDexPath string, transform func(string) string) {
+// Returns nil if no JDex file exists (not an error condition).
+func updateJDexFile(dstPath, oldFolderName, newJDexPath string, transform func(string) string) error {
 	oldJDexPath := filepath.Join(dstPath, domain.JDexFileName(oldFolderName))
 	legacyReadmePath := filepath.Join(dstPath, "README.md")
 
@@ -50,22 +51,25 @@ func updateJDexFile(dstPath, oldFolderName, newJDexPath string, transform func(s
 	}
 
 	if sourcePath == "" {
-		return
+		return nil // No JDex file to update
 	}
 
 	content, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return
+		return fmt.Errorf("failed to read JDex file %s: %w", sourcePath, err)
 	}
 
 	updated := transform(string(content))
 	if err := os.WriteFile(newJDexPath, []byte(updated), 0644); err != nil {
-		return
+		return fmt.Errorf("failed to write JDex file %s: %w", newJDexPath, err)
 	}
 
 	if sourcePath != newJDexPath {
-		os.Remove(sourcePath)
+		if err := os.Remove(sourcePath); err != nil {
+			return fmt.Errorf("failed to remove old JDex file %s: %w", sourcePath, err)
+		}
 	}
+	return nil
 }
 
 // nextAvailableItemID returns the next available item ID in a category
@@ -407,10 +411,10 @@ func (r *Repository) MoveItem(srcItemID, dstCategoryID string) (*domain.Item, er
 		return nil, fmt.Errorf("failed to move item: %w", err)
 	}
 
-	// Update JDex file
+	// Update JDex file (best-effort, non-critical)
 	oldFolderName := filepath.Base(srcPath)
 	newJDexPath := filepath.Join(dstPath, domain.JDexFileName(newFolderName))
-	updateJDexFile(dstPath, oldFolderName, newJDexPath, func(content string) string {
+	_ = updateJDexFile(dstPath, oldFolderName, newJDexPath, func(content string) string {
 		return domain.UpdateReadmeID(content, srcItemID, newID, description)
 	})
 
@@ -524,10 +528,10 @@ func (r *Repository) updateItemIDsInCategory(categoryPath, _, newCategoryID stri
 			continue
 		}
 
-		// Update JDex file
+		// Update JDex file (best-effort, non-critical)
 		oldFolderName := entry.Name()
 		newJDexPath := filepath.Join(newPath, domain.JDexFileName(newFolderName))
-		updateJDexFile(newPath, oldFolderName, newJDexPath, func(content string) string {
+		_ = updateJDexFile(newPath, oldFolderName, newJDexPath, func(content string) string {
 			return domain.UpdateReadmeID(content, oldItemID, newItemID, description)
 		})
 
@@ -581,9 +585,9 @@ func (r *Repository) ArchiveItem(srcItemID string) (*domain.Item, error) {
 		return nil, fmt.Errorf("failed to move item to archive: %w", err)
 	}
 
-	// Update JDex file (rename from "S01.11.15 Theatre.md" to "[Archived] Theatre.md")
+	// Update JDex file (rename from "S01.11.15 Theatre.md" to "[Archived] Theatre.md", best-effort)
 	newJDexPath := filepath.Join(dstPath, archivedFolderName+".md")
-	updateJDexFile(dstPath, folderName, newJDexPath, func(content string) string {
+	_ = updateJDexFile(dstPath, folderName, newJDexPath, func(content string) string {
 		return domain.UpdateReadmeForArchive(content, srcItemID, description)
 	})
 
@@ -732,7 +736,7 @@ func (r *Repository) updateVaultLinks(replacements []LinkReplacement) {
 		}
 
 		if contentStr != originalContent {
-			os.WriteFile(path, []byte(contentStr), 0644)
+			_ = os.WriteFile(path, []byte(contentStr), 0644) // Best-effort write
 		}
 
 		return nil
@@ -789,7 +793,7 @@ func (r *Repository) updateObsidianLinksWithCache(oldID, newID, description stri
 				contentStr = re2.ReplaceAllString(contentStr, newAliasPrefix)
 
 				if contentStr != originalContent {
-					os.WriteFile(fullPath, []byte(contentStr), 0644)
+					_ = os.WriteFile(fullPath, []byte(contentStr), 0644) // Best-effort write
 				}
 			}
 

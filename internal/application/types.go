@@ -47,3 +47,8 @@ func ArchiveItemID(categoryID string) (string, error) {
 func IsArchiveItem(itemID string) bool {
 	return domain.IsArchiveItem(itemID)
 }
+
+// GetIDHierarchy returns the full hierarchy of IDs leading to the given ID
+func GetIDHierarchy(id string) []string {
+	return domain.GetIDHierarchy(id)
+}

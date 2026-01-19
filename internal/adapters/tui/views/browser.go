@@ -536,42 +536,7 @@ func (m *BrowserModel) navigateToResult(result application.SearchResult) {
 
 // getIDPath returns the hierarchy of IDs leading to the given ID
 func (m *BrowserModel) getIDPath(id string) []string {
-	var path []string
-	idType := application.ParseIDType(id)
-
-	switch idType {
-	case application.IDTypeScope:
-		path = []string{id}
-	case application.IDTypeArea:
-		// Area: S01.10-19 -> scope is S01
-		if len(id) >= 3 {
-			path = []string{id[:3], id}
-		}
-	case application.IDTypeCategory:
-		// Category: S01.11 -> scope is S01, area is S01.10-19
-		if len(id) >= 3 {
-			scope := id[:3]
-			// Derive area from category (e.g., S01.11 -> S01.10-19)
-			if len(id) >= 6 {
-				areaNum := id[4:5] // First digit of category
-				area := scope + "." + areaNum + "0-" + areaNum + "9"
-				path = []string{scope, area, id}
-			}
-		}
-	case application.IDTypeItem:
-		// Item: S01.11.15 -> scope, area, category, item
-		if len(id) >= 3 {
-			scope := id[:3]
-			if len(id) >= 6 {
-				areaNum := id[4:5]
-				area := scope + "." + areaNum + "0-" + areaNum + "9"
-				category := id[:6]
-				path = []string{scope, area, category, id}
-			}
-		}
-	}
-
-	return path
+	return application.GetIDHierarchy(id)
 }
 
 func (m *BrowserModel) loadNodeChildren(node *application.TreeNode) tea.Cmd {

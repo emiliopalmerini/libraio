@@ -362,3 +362,28 @@ func ExtractID(folderName string) string {
 func FormatFolderName(id, description string) string {
 	return fmt.Sprintf("%s %s", id, description)
 }
+
+// GetIDHierarchy returns the full hierarchy of IDs leading to the given ID.
+// For example, "S01.11.15" returns ["S01", "S01.10-19", "S01.11", "S01.11.15"]
+func GetIDHierarchy(id string) []string {
+	idType := ParseIDType(id)
+
+	switch idType {
+	case IDTypeScope:
+		return []string{id}
+	case IDTypeArea:
+		scope, _ := ParseScope(id)
+		return []string{scope, id}
+	case IDTypeCategory:
+		scope, _ := ParseScope(id)
+		area, _ := ParseArea(id)
+		return []string{scope, area, id}
+	case IDTypeItem:
+		scope, _ := ParseScope(id)
+		area, _ := ParseArea(id)
+		category, _ := ParseCategory(id)
+		return []string{scope, area, category, id}
+	default:
+		return nil
+	}
+}

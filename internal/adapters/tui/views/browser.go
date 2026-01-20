@@ -745,43 +745,29 @@ func (m *BrowserModel) renderHelpLine() string {
 	var bindings []key.Binding
 
 	if node != nil {
+		// Check smart catalog eligibility (only inbox items)
+		canCatalog := node.Type == application.IDTypeItem && domain.IsInboxItem(node.ID)
+
 		switch node.Type {
 		case application.IDTypeItem:
-			// Items: open in obsidian, yank ID, move, archive, delete
-			bindings = append(bindings,
-				BrowserKeys.Obsidian,
-				BrowserKeys.Yank,
-				BrowserKeys.Move,
-				BrowserKeys.Archive,
-				BrowserKeys.Delete,
-			)
+			if canCatalog {
+				bindings = append(bindings, BrowserKeys.SmartCatalog)
+			}
 		case application.IDTypeCategory:
-			// Categories: new item, move, archive, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item")),
-				BrowserKeys.Move,
-				BrowserKeys.Archive,
-				BrowserKeys.Delete,
 			)
 		case application.IDTypeArea:
-			// Areas: new category, delete
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new category")),
-				BrowserKeys.Delete,
-			)
-		case application.IDTypeScope:
-			// Scopes: delete
-			bindings = append(bindings,
-				BrowserKeys.Delete,
 			)
 		}
 	}
 
-	// Always show search, help, quit
+	// Always show search and help
 	bindings = append(bindings,
 		BrowserKeys.Search,
 		BrowserKeys.Help,
-		BrowserKeys.Quit,
 	)
 
 	var parts []string

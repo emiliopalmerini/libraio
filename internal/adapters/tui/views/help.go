@@ -77,7 +77,11 @@ func (m *HelpModel) View() string {
 	b.WriteString("\n")
 	b.WriteString(helpLine("n", "Create new item/category"))
 	b.WriteString(helpLine("m", "Move item/category"))
+	b.WriteString(helpLine("a", "Archive"))
+	b.WriteString(helpLine("c", "Smart catalog (inbox items)"))
 	b.WriteString(helpLine("d", "Delete"))
+	b.WriteString(helpLine("o", "Open in Obsidian"))
+	b.WriteString(helpLine("y", "Copy ID to clipboard"))
 	b.WriteString(helpLine("/", "Search"))
 	b.WriteString("\n")
 
@@ -120,4 +124,3 @@ func padRight(s string, length int) string {
 	}
 	return s + strings.Repeat(" ", length-len(s))
 }
-

@@ -38,16 +38,16 @@ type BrowserKeyMap struct {
 
 var BrowserKeys = BrowserKeyMap{
 	Up: key.NewBinding(
-		key.WithKeys("k"),
+		key.WithKeys("k", "up"),
 		key.WithHelp("k", "up"),
 	),
 	Down: key.NewBinding(
-		key.WithKeys("j"),
+		key.WithKeys("j", "down"),
 		key.WithHelp("j", "down"),
 	),
 	Enter: key.NewBinding(
-		key.WithKeys(" "),
-		key.WithHelp("space", "open/toggle"),
+		key.WithKeys("enter", " "),
+		key.WithHelp("enter/space", "open/toggle"),
 	),
 	Obsidian: key.NewBinding(
 		key.WithKeys("o"),
@@ -86,8 +86,8 @@ var BrowserKeys = BrowserKeyMap{
 		key.WithHelp("?", "help"),
 	),
 	Quit: key.NewBinding(
-		key.WithKeys("q", "ctrl+c"),
-		key.WithHelp("q", "quit"),
+		key.WithKeys("esc", "q", "ctrl+c"),
+		key.WithHelp("esc/q", "quit"),
 	),
 }
 
@@ -741,21 +741,14 @@ func keyHelp(b key.Binding) string {
 func (m *BrowserModel) renderHelpLine() string {
 	node := m.selectedNode()
 
-	// Common keys for all contexts
+	// Context-specific bindings based on node type
 	var bindings []key.Binding
 
-	// Navigation is always available
-	bindings = append(bindings,
-		key.NewBinding(key.WithKeys("j/k"), key.WithHelp("j/k", "navigate")),
-	)
-
-	// Context-specific bindings based on node type
 	if node != nil {
 		switch node.Type {
 		case application.IDTypeItem:
-			// Items: open README, open in obsidian, yank ID, move, archive, delete
+			// Items: open in obsidian, yank ID, move, archive, delete
 			bindings = append(bindings,
-				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "open")),
 				BrowserKeys.Obsidian,
 				BrowserKeys.Yank,
 				BrowserKeys.Move,
@@ -763,33 +756,25 @@ func (m *BrowserModel) renderHelpLine() string {
 				BrowserKeys.Delete,
 			)
 		case application.IDTypeCategory:
-			// Categories: toggle, new item, move, archive, delete
+			// Categories: new item, move, archive, delete
 			bindings = append(bindings,
-				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new item")),
 				BrowserKeys.Move,
 				BrowserKeys.Archive,
 				BrowserKeys.Delete,
 			)
 		case application.IDTypeArea:
-			// Areas: toggle, new category, delete
+			// Areas: new category, delete
 			bindings = append(bindings,
-				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new category")),
 				BrowserKeys.Delete,
 			)
 		case application.IDTypeScope:
-			// Scopes: toggle, delete
+			// Scopes: delete
 			bindings = append(bindings,
-				key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
 				BrowserKeys.Delete,
 			)
 		}
-	} else {
-		// Fallback when no node selected
-		bindings = append(bindings,
-			key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
-		)
 	}
 
 	// Always show search, help, quit
@@ -813,7 +798,6 @@ func (m *BrowserModel) SetSize(width, height int) {
 	m.Height = height
 	m.ensureCursorVisible()
 }
-
 
 // treeViewHeight returns the number of lines available for the tree view
 func (m *BrowserModel) treeViewHeight() int {

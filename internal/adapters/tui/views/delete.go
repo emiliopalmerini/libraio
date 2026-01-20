@@ -149,4 +149,3 @@ func (m *DeleteModel) View() string {
 
 	return styles.App.Render(b.String())
 }
-

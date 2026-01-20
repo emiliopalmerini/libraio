@@ -517,7 +517,6 @@ func (m *SmartCatalogModel) View() string {
 	return styles.App.Render(b.String())
 }
 
-
 // HandleFileMoved processes a successful file move
 func (m *SmartCatalogModel) HandleFileMoved() {
 	m.moved++

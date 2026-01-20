@@ -276,4 +276,3 @@ func (m *CreateModel) View() string {
 
 	return styles.App.Render(b.String())
 }
-

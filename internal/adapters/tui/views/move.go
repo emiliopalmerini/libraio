@@ -193,4 +193,3 @@ func (m *MoveModel) View() string {
 
 	return styles.App.Render(b.String())
 }
-

@@ -16,6 +16,7 @@ const (
 	IDTypeArea            // S01.10-19
 	IDTypeCategory        // S01.11
 	IDTypeItem            // S01.11.11
+	IDTypeFile            // File inside an item directory
 )
 
 func (t IDType) String() string {
@@ -28,6 +29,8 @@ func (t IDType) String() string {
 		return "Category"
 	case IDTypeItem:
 		return "Item"
+	case IDTypeFile:
+		return "File"
 	default:
 		return "Unknown"
 	}

@@ -42,9 +42,9 @@ type Item struct {
 // SearchResult represents a search match
 type SearchResult struct {
 	Type        IDType
-	ID          string
-	Name        string
-	Path        string
+	ID          string // Parent item ID (for navigation)
+	Name        string // Filename
+	Path        string // Full file path
 	MatchedText string
 }
 

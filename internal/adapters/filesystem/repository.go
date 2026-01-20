@@ -818,11 +818,11 @@ func (r *Repository) Delete(id string) error {
 	return os.RemoveAll(path)
 }
 
-// Search searches for items matching the query in folder names and filenames
+// Search searches for files matching the query
 func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 	query = strings.ToLower(query)
 	var results []domain.SearchResult
-	seen := make(map[string]bool) // Avoid duplicates
+	seen := make(map[string]bool) // Avoid duplicate file paths
 
 	err := filepath.Walk(r.vaultPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -834,54 +834,35 @@ func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 			return filepath.SkipDir
 		}
 
-		// Check directories (scopes, areas, categories)
+		// Only search files
 		if info.IsDir() {
-			name := info.Name()
-			id := domain.ExtractID(name)
-			idType := domain.ParseIDType(id)
-
-			if idType == domain.IDTypeUnknown || seen[id] {
-				return nil
-			}
-
-			// Match folder name
-			if strings.Contains(strings.ToLower(name), query) {
-				seen[id] = true
-				results = append(results, domain.SearchResult{
-					Type:        idType,
-					ID:          id,
-					Name:        domain.ExtractDescription(name),
-					Path:        path,
-					MatchedText: name,
-				})
-			}
 			return nil
 		}
 
-		// Check all files for filename matches
-		if !info.IsDir() {
-			// Match against filename (without extension)
-			filename := strings.TrimSuffix(info.Name(), filepath.Ext(info.Name()))
-			if !strings.Contains(strings.ToLower(filename), query) {
-				return nil
-			}
-
-			// Find the nearest parent with a valid Johnny Decimal ID
-			id, idPath := r.findNearestID(path)
-			if id == "" || seen[id] {
-				return nil
-			}
-
-			idType := domain.ParseIDType(id)
-			seen[id] = true
-			results = append(results, domain.SearchResult{
-				Type:        idType,
-				ID:          id,
-				Name:        domain.ExtractDescription(filepath.Base(idPath)),
-				Path:        idPath,
-				MatchedText: filename, // Use matched filename for scoring
-			})
+		// Match against filename (with or without extension)
+		filename := info.Name()
+		filenameNoExt := strings.TrimSuffix(filename, filepath.Ext(filename))
+		if !strings.Contains(strings.ToLower(filename), query) &&
+			!strings.Contains(strings.ToLower(filenameNoExt), query) {
+			return nil
 		}
+
+		// Avoid duplicates
+		if seen[path] {
+			return nil
+		}
+		seen[path] = true
+
+		// Find the nearest parent with a valid Johnny Decimal ID (item)
+		id, _ := r.findNearestID(path)
+
+		results = append(results, domain.SearchResult{
+			Type:        domain.IDTypeFile,
+			ID:          id, // Parent item ID for navigation
+			Name:        filename,
+			Path:        path,
+			MatchedText: filenameNoExt,
+		})
 
 		return nil
 	})
@@ -1000,6 +981,25 @@ func (r *Repository) LoadChildren(node *domain.TreeNode) error {
 				ID:     item.ID,
 				Name:   item.Name,
 				Path:   item.Path,
+				Parent: node,
+			})
+		}
+
+	case domain.IDTypeItem:
+		// Load files inside item directory
+		entries, err := os.ReadDir(node.Path)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue // Skip subdirectories
+			}
+			node.Children = append(node.Children, &domain.TreeNode{
+				Type:   domain.IDTypeFile,
+				ID:     "", // Files don't have Johnny Decimal IDs
+				Name:   entry.Name(),
+				Path:   filepath.Join(node.Path, entry.Name()),
 				Parent: node,
 			})
 		}

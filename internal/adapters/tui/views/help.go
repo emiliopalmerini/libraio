@@ -69,7 +69,8 @@ func (m *HelpModel) View() string {
 	b.WriteString(styles.InputLabel.Render("Navigation"))
 	b.WriteString("\n")
 	b.WriteString(helpLine("j / k", "Move up/down"))
-	b.WriteString(helpLine("Space", "Toggle expand / open"))
+	b.WriteString(helpLine("h / l", "Collapse / Expand"))
+	b.WriteString(helpLine("Enter / Space", "Toggle expand / open file"))
 	b.WriteString("\n")
 
 	// Actions section

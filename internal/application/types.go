@@ -11,6 +11,7 @@ const (
 	IDTypeArea     = domain.IDTypeArea
 	IDTypeCategory = domain.IDTypeCategory
 	IDTypeItem     = domain.IDTypeItem
+	IDTypeFile     = domain.IDTypeFile
 )
 
 // Re-export domain types for use by adapters

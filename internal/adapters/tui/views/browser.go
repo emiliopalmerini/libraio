@@ -23,6 +23,8 @@ import (
 type BrowserKeyMap struct {
 	Up           key.Binding
 	Down         key.Binding
+	Left         key.Binding
+	Right        key.Binding
 	Enter        key.Binding
 	Obsidian     key.Binding
 	Yank         key.Binding
@@ -44,6 +46,14 @@ var BrowserKeys = BrowserKeyMap{
 	Down: key.NewBinding(
 		key.WithKeys("j", "down"),
 		key.WithHelp("j", "down"),
+	),
+	Left: key.NewBinding(
+		key.WithKeys("h", "left"),
+		key.WithHelp("h", "collapse"),
+	),
+	Right: key.NewBinding(
+		key.WithKeys("l", "right"),
+		key.WithHelp("l", "expand"),
 	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter", " "),
@@ -223,15 +233,34 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case key.Matches(msg, BrowserKeys.Left):
+			return m.handleCollapse()
+
+		case key.Matches(msg, BrowserKeys.Right):
+			return m.handleExpand()
+
 		case key.Matches(msg, BrowserKeys.Enter):
 			return m.handleEnter()
 
 		case key.Matches(msg, BrowserKeys.Obsidian):
 			if node := m.selectedNode(); node != nil {
-				if node.Type == application.IDTypeItem {
-					jdexPath := m.getJDexPath(node)
+				var pathToOpen string
+
+				if node.Type == application.IDTypeFile {
+					// Check if Obsidian can open this file type
+					if canObsidianOpen(node.Path) {
+						pathToOpen = node.Path
+					} else if node.Parent != nil {
+						// Fall back to parent item's JDex
+						pathToOpen = m.getJDexPath(node.Parent)
+					}
+				} else if node.Type == application.IDTypeItem {
+					pathToOpen = m.getJDexPath(node)
+				}
+
+				if pathToOpen != "" {
 					return m, func() tea.Msg {
-						return OpenObsidianMsg{Path: jdexPath}
+						return OpenObsidianMsg{Path: pathToOpen}
 					}
 				}
 			}
@@ -239,9 +268,16 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, BrowserKeys.Yank):
 			if node := m.selectedNode(); node != nil {
-				clipboard.WriteAll(node.ID)
-				m.Message = fmt.Sprintf("Yanked: %s", node.ID)
-				m.MessageErr = false
+				// Get nearest ID (for files, use parent's ID)
+				id := node.ID
+				if node.Type == application.IDTypeFile && node.Parent != nil {
+					id = node.Parent.ID
+				}
+				if id != "" {
+					clipboard.WriteAll(id)
+					m.Message = fmt.Sprintf("Yanked: %s", id)
+					m.MessageErr = false
+				}
 			}
 			return m, nil
 
@@ -298,28 +334,74 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleEnter handles the enter/space key to open items or toggle expansion
+// handleEnter handles the enter/space key to open files or toggle expansion
 func (m *BrowserModel) handleEnter() (tea.Model, tea.Cmd) {
 	node := m.selectedNode()
 	if node == nil {
 		return m, nil
 	}
 
-	if node.Type == application.IDTypeItem {
-		// Open JDex file in editor
-		jdexPath := m.getJDexPath(node)
+	// Files open in editor
+	if node.Type == application.IDTypeFile {
 		return m, func() tea.Msg {
-			return OpenEditorMsg{Path: jdexPath}
+			return OpenEditorMsg{Path: node.Path}
 		}
 	}
 
-	// Toggle expand/collapse for non-items
+	// Toggle expand/collapse for all other types (including items)
 	if !node.IsExpanded {
 		node.Expand()
 		return m, m.loadNodeChildren(node)
 	}
 	node.Collapse()
 	m.refreshFlatNodes()
+	return m, nil
+}
+
+// handleExpand handles the l/right key to expand a node
+func (m *BrowserModel) handleExpand() (tea.Model, tea.Cmd) {
+	node := m.selectedNode()
+	if node == nil {
+		return m, nil
+	}
+
+	// Files can't be expanded
+	if node.Type == application.IDTypeFile {
+		return m, nil
+	}
+
+	// Expand if not already expanded
+	if !node.IsExpanded {
+		node.Expand()
+		return m, m.loadNodeChildren(node)
+	}
+	return m, nil
+}
+
+// handleCollapse handles the h/left key to collapse a node or go to parent
+func (m *BrowserModel) handleCollapse() (tea.Model, tea.Cmd) {
+	node := m.selectedNode()
+	if node == nil {
+		return m, nil
+	}
+
+	// If expanded, collapse it
+	if node.IsExpanded {
+		node.Collapse()
+		m.refreshFlatNodes()
+		return m, nil
+	}
+
+	// If not expanded, go to parent
+	if node.Parent != nil && node.Parent.Parent != nil { // Skip root
+		for i, n := range m.flatNodes {
+			if n == node.Parent {
+				m.cursor = i
+				m.ensureCursorVisible()
+				break
+			}
+		}
+	}
 	return m, nil
 }
 
@@ -522,13 +604,17 @@ func (m *BrowserModel) fuzzySort(results []application.SearchResult, query strin
 	return sorted
 }
 
-// navigateToResult expands the tree path and navigates to a search result
+// navigateToResult expands the tree path and navigates to a search result (file)
 func (m *BrowserModel) navigateToResult(result application.SearchResult) {
+	if result.ID == "" {
+		return // File has no parent item ID
+	}
+
 	// Parse the ID to get parent IDs
 	// e.g., "S01.11.15" -> ["S01", "S01.10-19", "S01.11", "S01.11.15"]
 	parts := m.getIDPath(result.ID)
 
-	// Expand each level
+	// Expand each level to reach the item
 	current := m.root
 	for _, partID := range parts {
 		// Load children if needed
@@ -546,8 +632,23 @@ func (m *BrowserModel) navigateToResult(result application.SearchResult) {
 		}
 	}
 
-	// Refresh and find cursor position
+	// Now current is the item - expand it to show files
+	if len(current.Children) == 0 {
+		m.repo.LoadChildren(current)
+	}
+	current.Expand()
+
+	// Refresh and find cursor position for the file
 	m.refreshFlatNodes()
+	for i, node := range m.flatNodes {
+		if node.Path == result.Path {
+			m.cursor = i
+			m.ensureCursorVisible()
+			return
+		}
+	}
+
+	// Fallback: select the item if file not found
 	for i, node := range m.flatNodes {
 		if node.ID == result.ID {
 			m.cursor = i
@@ -608,6 +709,33 @@ func (m *BrowserModel) getJDexPath(node *application.TreeNode) string {
 
 	// Return new-style path as default (for new items)
 	return jdexPath
+}
+
+// canObsidianOpen checks if Obsidian can natively open a file type
+func canObsidianOpen(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	// Markdown
+	case ".md":
+		return true
+	// Images
+	case ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp":
+		return true
+	// PDF
+	case ".pdf":
+		return true
+	// Audio
+	case ".mp3", ".wav", ".m4a", ".ogg", ".3gp", ".flac", ".webm":
+		return true
+	// Video
+	case ".mp4", ".ogv", ".mov", ".mkv":
+		return true
+	// Canvas
+	case ".canvas":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *BrowserModel) refreshFlatNodes() {
@@ -691,7 +819,7 @@ func (m *BrowserModel) renderNode(node *application.TreeNode, selected bool) str
 
 	// Prefix (expand indicator)
 	var prefix string
-	if node.Type == application.IDTypeItem {
+	if node.Type == application.IDTypeFile {
 		prefix = styles.TreeLeaf
 	} else if node.IsExpanded {
 		prefix = styles.TreeExpanded
@@ -699,8 +827,13 @@ func (m *BrowserModel) renderNode(node *application.TreeNode, selected bool) str
 		prefix = styles.TreeCollapsed
 	}
 
-	// Format: "ID Description"
-	text := fmt.Sprintf("%s %s", node.ID, node.Name)
+	// Format text based on type
+	var text string
+	if node.Type == application.IDTypeFile {
+		text = node.Name // Files just show filename
+	} else {
+		text = fmt.Sprintf("%s %s", node.ID, node.Name) // "ID Description"
+	}
 
 	// Apply style based on type
 	var style lipgloss.Style
@@ -718,6 +851,8 @@ func (m *BrowserModel) renderNode(node *application.TreeNode, selected bool) str
 		}
 	case application.IDTypeItem:
 		style = styles.NodeItem
+	case application.IDTypeFile:
+		style = styles.MutedText
 	}
 
 	styledText := style.Render(text)

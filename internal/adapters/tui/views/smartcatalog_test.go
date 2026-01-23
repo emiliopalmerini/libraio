@@ -359,8 +359,8 @@ func (m *mockVaultRepository) ListScopes() ([]domain.Scope, error) {
 	return m.scopes, nil
 }
 
-func (m *mockVaultRepository) BuildTree() (*domain.TreeNode, error)    { return nil, nil }
-func (m *mockVaultRepository) LoadChildren(*domain.TreeNode) error     { return nil }
+func (m *mockVaultRepository) BuildTree() (*domain.TreeNode, error) { return nil, nil }
+func (m *mockVaultRepository) LoadChildren(*domain.TreeNode) error  { return nil }
 func (m *mockVaultRepository) Search(string) ([]domain.SearchResult, error) {
 	return nil, nil
 }
@@ -369,8 +369,8 @@ func (m *mockVaultRepository) CreateArea(string, string) (*domain.Area, error) {
 func (m *mockVaultRepository) CreateCategory(string, string) (*domain.Category, error) {
 	return nil, nil
 }
-func (m *mockVaultRepository) CreateItem(string, string) (*domain.Item, error)     { return nil, nil }
-func (m *mockVaultRepository) MoveItem(string, string) (*domain.Item, error)       { return nil, nil }
+func (m *mockVaultRepository) CreateItem(string, string) (*domain.Item, error) { return nil, nil }
+func (m *mockVaultRepository) MoveItem(string, string) (*domain.Item, error)   { return nil, nil }
 func (m *mockVaultRepository) MoveCategory(string, string) (*domain.Category, error) {
 	return nil, nil
 }

@@ -4,11 +4,20 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"libraio/internal/domain"
 )
+
+// mdFile holds info about a markdown file to process
+type mdFile struct {
+	fullPath string
+	relPath  string
+	mtime    int64
+}
 
 // Link pattern for Obsidian wiki links: [[S01.XX.YY...]]
 var linkPattern = regexp.MustCompile(`\[\[([^\]|]+)(?:\|[^\]]+)?\]\]`)
@@ -22,12 +31,11 @@ func (idx *Index) SyncFull() (*domain.SyncStats, error) {
 	stats := &domain.SyncStats{}
 
 	// Begin transaction - CRITICAL for performance
-	// Without this, each insert is a separate transaction with disk sync
 	tx, err := idx.db.Begin()
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback() // Rollback if not committed
+	defer tx.Rollback()
 
 	// Clear existing data
 	if _, err := tx.Exec(`DELETE FROM nodes`); err != nil {
@@ -37,7 +45,7 @@ func (idx *Index) SyncFull() (*domain.SyncStats, error) {
 		return nil, err
 	}
 
-	// Prepare statements once - avoids re-parsing SQL for each insert
+	// Prepare statements once
 	insertNodeStmt, err := tx.Prepare(`
 		INSERT INTO nodes (path, jd_id, jd_type, name, mtime)
 		VALUES (?, ?, ?, ?, ?)
@@ -56,58 +64,55 @@ func (idx *Index) SyncFull() (*domain.SyncStats, error) {
 	}
 	defer insertEdgeStmt.Close()
 
-	// Walk the vault
-	err = filepath.Walk(idx.vaultPath, func(path string, info os.FileInfo, err error) error {
+	// Collect markdown files for parallel processing
+	// Pre-allocate with estimated capacity
+	mdFiles := make([]mdFile, 0, 1024)
+
+	// Use WalkDir - faster than Walk (avoids redundant stat calls)
+	err = filepath.WalkDir(idx.vaultPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // Skip errors
+			return nil
 		}
 
+		name := d.Name()
+
 		// Skip hidden directories
-		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
+		if d.IsDir() && len(name) > 0 && name[0] == '.' {
 			return filepath.SkipDir
 		}
 
 		relPath, _ := filepath.Rel(idx.vaultPath, path)
 		stats.FilesScanned++
 
-		if info.IsDir() {
-			// Check if directory is a JD node
-			jdID, jdType := extractJDInfo(info.Name())
+		if d.IsDir() {
+			jdID, jdType := extractJDInfo(name)
 			if jdType != domain.IDTypeUnknown {
-				_, err := insertNodeStmt.Exec(
+				info, err := d.Info()
+				if err != nil {
+					return nil
+				}
+				_, err = insertNodeStmt.Exec(
 					relPath,
 					nullString(jdID),
 					nullString(jdType.String()),
-					extractDescription(info.Name()),
+					extractDescription(name),
 					info.ModTime().Unix(),
 				)
 				if err == nil {
 					stats.NodesAdded++
 				}
 			}
-		} else if strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
-			// Index markdown file for links
-			_, err := insertNodeStmt.Exec(
-				relPath,
-				nil,
-				nil,
-				info.Name(),
-				info.ModTime().Unix(),
-			)
-			if err == nil {
-				stats.NodesAdded++
+		} else if len(name) > 3 && strings.EqualFold(name[len(name)-3:], ".md") {
+			// Collect for parallel processing
+			info, err := d.Info()
+			if err != nil {
+				return nil
 			}
-
-			// Parse and index links
-			edges, err := parseLinksInFile(filepath.Join(idx.vaultPath, relPath), relPath)
-			if err == nil {
-				for _, edge := range edges {
-					_, err := insertEdgeStmt.Exec(edge.SourcePath, edge.TargetJDID, edge.LinkText)
-					if err == nil {
-						stats.EdgesAdded++
-					}
-				}
-			}
+			mdFiles = append(mdFiles, mdFile{
+				fullPath: path,
+				relPath:  relPath,
+				mtime:    info.ModTime().Unix(),
+			})
 		}
 
 		return nil
@@ -117,11 +122,70 @@ func (idx *Index) SyncFull() (*domain.SyncStats, error) {
 		return stats, err
 	}
 
+	// Process markdown files in parallel
+	numWorkers := runtime.NumCPU()
+	if numWorkers > 8 {
+		numWorkers = 8 // Cap workers to avoid too many open files
+	}
+
+	// Channel for files to process
+	fileCh := make(chan mdFile, len(mdFiles))
+	for _, f := range mdFiles {
+		fileCh <- f
+	}
+	close(fileCh)
+
+	// Channel for results
+	type fileResult struct {
+		relPath string
+		name    string
+		mtime   int64
+		edges   []domain.Edge
+	}
+	resultCh := make(chan fileResult, len(mdFiles))
+
+	// Spawn workers
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for f := range fileCh {
+				edges, _ := parseLinksInFile(f.fullPath, f.relPath)
+				resultCh <- fileResult{
+					relPath: f.relPath,
+					name:    filepath.Base(f.fullPath),
+					mtime:   f.mtime,
+					edges:   edges,
+				}
+			}
+		}()
+	}
+
+	// Close results channel when workers done
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Insert nodes and edges from results
+	for r := range resultCh {
+		_, err := insertNodeStmt.Exec(r.relPath, nil, nil, r.name, r.mtime)
+		if err == nil {
+			stats.NodesAdded++
+		}
+		for _, edge := range r.edges {
+			_, err := insertEdgeStmt.Exec(edge.SourcePath, edge.TargetJDID, edge.LinkText)
+			if err == nil {
+				stats.EdgesAdded++
+			}
+		}
+	}
+
 	// Update last sync time
 	tx.Exec(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync_time', ?)`,
 		time.Now().Unix())
 
-	// Commit the transaction - single disk sync for all operations
 	if err := tx.Commit(); err != nil {
 		return stats, err
 	}

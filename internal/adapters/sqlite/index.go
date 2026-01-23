@@ -57,16 +57,43 @@ func (idx *Index) Open(vaultPath string) error {
 	}
 	idx.db = db
 
-	// Performance pragmas - these significantly speed up writes
-	db.Exec(`PRAGMA synchronous = NORMAL`) // Safe with WAL, faster than FULL
-	db.Exec(`PRAGMA cache_size = -64000`)  // 64MB page cache
-	db.Exec(`PRAGMA temp_store = MEMORY`)  // Temp tables in RAM
-	db.Exec(`PRAGMA busy_timeout = 5000`)  // 5s timeout if locked
+	// Performance pragmas + schema in single batch (reduces round-trips)
+	_, err = db.Exec(`
+		PRAGMA synchronous = NORMAL;
+		PRAGMA cache_size = -64000;
+		PRAGMA temp_store = MEMORY;
+		PRAGMA busy_timeout = 5000;
 
-	// Create schema if needed
-	if err := idx.ensureSchema(); err != nil {
+		CREATE TABLE IF NOT EXISTS nodes (
+			path TEXT PRIMARY KEY,
+			jd_id TEXT,
+			jd_type TEXT,
+			name TEXT,
+			mtime INTEGER NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS edges (
+			source_path TEXT NOT NULL,
+			target_jd_id TEXT NOT NULL,
+			link_text TEXT NOT NULL,
+			PRIMARY KEY (source_path, link_text)
+		);
+		CREATE TABLE IF NOT EXISTS meta (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_nodes_jd_id ON nodes(jd_id);
+		CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_jd_id);
+		CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_path);
+	`)
+	if err != nil {
 		db.Close()
-		return fmt.Errorf("failed to ensure schema: %w", err)
+		return fmt.Errorf("failed to setup database: %w", err)
+	}
+
+	// Update metadata
+	if err := idx.updateMeta(); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to update metadata: %w", err)
 	}
 
 	return nil
@@ -113,48 +140,12 @@ func hashVaultPath(vaultPath string) string {
 	return hex.EncodeToString(h[:8]) // First 8 bytes = 16 hex chars
 }
 
-// ensureSchema creates the database schema if it doesn't exist
-func (idx *Index) ensureSchema() error {
-	schema := `
-	-- Nodes: All JD items (scopes, areas, categories, items) + markdown files
-	CREATE TABLE IF NOT EXISTS nodes (
-		path TEXT PRIMARY KEY,
-		jd_id TEXT,
-		jd_type TEXT,
-		name TEXT,
-		mtime INTEGER NOT NULL
-	);
-
-	-- Edges: Links between files (adjacency list)
-	CREATE TABLE IF NOT EXISTS edges (
-		source_path TEXT NOT NULL,
-		target_jd_id TEXT NOT NULL,
-		link_text TEXT NOT NULL,
-		PRIMARY KEY (source_path, link_text)
-	);
-
-	-- Sync metadata
-	CREATE TABLE IF NOT EXISTS meta (
-		key TEXT PRIMARY KEY,
-		value TEXT NOT NULL
-	);
-
-	-- Indexes for fast lookups
-	CREATE INDEX IF NOT EXISTS idx_nodes_jd_id ON nodes(jd_id);
-	CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_jd_id);
-	CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_path);
-	`
-
-	if _, err := idx.db.Exec(schema); err != nil {
-		return fmt.Errorf("failed to create schema: %w", err)
-	}
-
-	// Update metadata
+// updateMeta updates the schema version and vault path hash
+func (idx *Index) updateMeta() error {
 	_, err := idx.db.Exec(`
 		INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?);
 		INSERT OR REPLACE INTO meta (key, value) VALUES ('vault_path_hash', ?);
 	`, schemaVersion, hashVaultPath(idx.vaultPath))
-
 	return err
 }
 

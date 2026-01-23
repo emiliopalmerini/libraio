@@ -896,11 +896,11 @@ func (r *Repository) Delete(id string) error {
 	return os.RemoveAll(path)
 }
 
-// Search searches for files matching the query
+// Search searches for files and folders matching the query
 func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 	query = strings.ToLower(query)
 	var results []domain.SearchResult
-	seen := make(map[string]bool) // Avoid duplicate file paths
+	seenIDs := make(map[string]bool) // Deduplicate by ID
 
 	err := filepath.Walk(r.vaultPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -912,35 +912,43 @@ func (r *Repository) Search(query string) ([]domain.SearchResult, error) {
 			return filepath.SkipDir
 		}
 
-		// Only search files
+		name := info.Name()
+		nameNoExt := strings.TrimSuffix(name, filepath.Ext(name))
+
+		// Check if name matches query
+		if !strings.Contains(strings.ToLower(name), query) &&
+			!strings.Contains(strings.ToLower(nameNoExt), query) {
+			return nil
+		}
+
 		if info.IsDir() {
-			return nil
+			// Match folder names (scopes, areas, categories, items)
+			id := domain.ExtractID(name)
+			idType := domain.ParseIDType(id)
+			if idType != domain.IDTypeUnknown && !seenIDs[id] {
+				seenIDs[id] = true
+				results = append(results, domain.SearchResult{
+					Type:        idType,
+					ID:          id,
+					Name:        domain.ExtractDescription(name),
+					Path:        path,
+					MatchedText: name,
+				})
+			}
+		} else {
+			// Match file names - deduplicate by parent ID
+			id, _ := r.findNearestID(path)
+			if id != "" && !seenIDs[id] {
+				seenIDs[id] = true
+				results = append(results, domain.SearchResult{
+					Type:        domain.IDTypeFile,
+					ID:          id,
+					Name:        name,
+					Path:        path,
+					MatchedText: nameNoExt,
+				})
+			}
 		}
-
-		// Match against filename (with or without extension)
-		filename := info.Name()
-		filenameNoExt := strings.TrimSuffix(filename, filepath.Ext(filename))
-		if !strings.Contains(strings.ToLower(filename), query) &&
-			!strings.Contains(strings.ToLower(filenameNoExt), query) {
-			return nil
-		}
-
-		// Avoid duplicates
-		if seen[path] {
-			return nil
-		}
-		seen[path] = true
-
-		// Find the nearest parent with a valid Johnny Decimal ID (item)
-		id, _ := r.findNearestID(path)
-
-		results = append(results, domain.SearchResult{
-			Type:        domain.IDTypeFile,
-			ID:          id, // Parent item ID for navigation
-			Name:        filename,
-			Path:        path,
-			MatchedText: filenameNoExt,
-		})
 
 		return nil
 	})

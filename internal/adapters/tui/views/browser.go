@@ -793,15 +793,6 @@ func mapToNodeType(node *application.TreeNode) styles.NodeType {
 	}
 }
 
-// keyHelp extracts the help text from a key.Binding
-func keyHelp(b key.Binding) string {
-	help := b.Help()
-	return fmt.Sprintf("%s %s",
-		styles.HelpKey.Render(help.Key),
-		styles.HelpDesc.Render(help.Desc),
-	)
-}
-
 func (m *BrowserModel) renderHelpLine() string {
 	node := m.selectedNode()
 
@@ -838,12 +829,7 @@ func (m *BrowserModel) renderHelpLine() string {
 		BrowserKeys.Help,
 	)
 
-	var parts []string
-	for _, b := range bindings {
-		parts = append(parts, keyHelp(b))
-	}
-
-	return strings.Join(parts, styles.HelpSeparator.String())
+	return RenderHelpLine(bindings...)
 }
 
 // SetSize updates the view dimensions

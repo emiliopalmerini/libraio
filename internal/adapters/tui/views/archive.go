@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/tui/styles"
@@ -14,40 +13,18 @@ import (
 	"libraio/internal/ports"
 )
 
-// ArchiveKeyMap defines key bindings for the archive view
-type ArchiveKeyMap struct {
-	Confirm key.Binding
-	Cancel  key.Binding
-}
-
-var ArchiveKeys = ArchiveKeyMap{
-	Confirm: key.NewBinding(
-		key.WithKeys("y"),
-		key.WithHelp("y", "confirm"),
-	),
-	Cancel: key.NewBinding(
-		key.WithKeys("n", "esc"),
-		key.WithHelp("n/esc", "cancel"),
-	),
-}
-
 // ArchiveModel is the model for the archive confirmation view
 type ArchiveModel struct {
-	ViewState
-	repo       ports.VaultRepository
-	targetNode *application.TreeNode
+	ConfirmationModel
+	repo ports.VaultRepository
 }
 
 // NewArchiveModel creates a new archive view model
 func NewArchiveModel(repo ports.VaultRepository) *ArchiveModel {
 	return &ArchiveModel{
-		repo: repo,
+		ConfirmationModel: NewConfirmationModel(),
+		repo:              repo,
 	}
-}
-
-// SetTarget sets the target node for archiving
-func (m *ArchiveModel) SetTarget(node *application.TreeNode) {
-	m.targetNode = node
 }
 
 // Init initializes the archive view
@@ -64,52 +41,48 @@ func (m *ArchiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, ArchiveKeys.Cancel):
-			return m, func() tea.Msg {
-				return SwitchToBrowserMsg{}
-			}
-
-		case key.Matches(msg, ArchiveKeys.Confirm):
-			return m, m.archive()
+		handled, cmd := m.HandleKeyMsg(msg,
+			func() tea.Msg { return m.doArchive() },
+			func() tea.Msg { return SwitchToBrowserMsg{} },
+		)
+		if handled {
+			return m, cmd
 		}
 	}
 
 	return m, nil
 }
 
-func (m *ArchiveModel) archive() tea.Cmd {
-	return func() tea.Msg {
-		if m.targetNode == nil {
-			return ArchiveErrMsg{Err: fmt.Errorf("no target selected")}
+func (m *ArchiveModel) doArchive() tea.Msg {
+	if m.TargetNode == nil {
+		return ArchiveErrMsg{Err: fmt.Errorf("no target selected")}
+	}
+
+	ctx := context.Background()
+
+	switch m.TargetNode.Type {
+	case application.IDTypeItem:
+		cmd := commands.NewArchiveItemCommand(m.repo, m.TargetNode.ID)
+		result, err := cmd.Execute(ctx)
+		if err != nil {
+			return ArchiveErrMsg{Err: err}
+		}
+		return ArchiveSuccessMsg{
+			Message: fmt.Sprintf("Archived %s %s -> %s", m.TargetNode.ID, m.TargetNode.Name, result.ArchivedItem.ID),
 		}
 
-		ctx := context.Background()
-
-		switch m.targetNode.Type {
-		case application.IDTypeItem:
-			cmd := commands.NewArchiveItemCommand(m.repo, m.targetNode.ID)
-			result, err := cmd.Execute(ctx)
-			if err != nil {
-				return ArchiveErrMsg{Err: err}
-			}
-			return ArchiveSuccessMsg{
-				Message: fmt.Sprintf("Archived %s %s → %s", m.targetNode.ID, m.targetNode.Name, result.ArchivedItem.ID),
-			}
-
-		case application.IDTypeCategory:
-			cmd := commands.NewArchiveCategoryCommand(m.repo, m.targetNode.ID)
-			result, err := cmd.Execute(ctx)
-			if err != nil {
-				return ArchiveErrMsg{Err: err}
-			}
-			return ArchiveSuccessMsg{
-				Message: fmt.Sprintf("Archived %d items from %s %s", len(result.ArchivedItems), m.targetNode.ID, m.targetNode.Name),
-			}
-
-		default:
-			return ArchiveErrMsg{Err: fmt.Errorf("cannot archive %s (only items and categories can be archived)", m.targetNode.Type)}
+	case application.IDTypeCategory:
+		cmd := commands.NewArchiveCategoryCommand(m.repo, m.TargetNode.ID)
+		result, err := cmd.Execute(ctx)
+		if err != nil {
+			return ArchiveErrMsg{Err: err}
 		}
+		return ArchiveSuccessMsg{
+			Message: fmt.Sprintf("Archived %d items from %s %s", len(result.ArchivedItems), m.TargetNode.ID, m.TargetNode.Name),
+		}
+
+	default:
+		return ArchiveErrMsg{Err: fmt.Errorf("cannot archive %s (only items and categories can be archived)", m.TargetNode.Type)}
 	}
 }
 
@@ -140,56 +113,68 @@ func (m *ArchiveModel) View() string {
 	b.WriteString(styles.MutedText.Render("Items will be moved to the archive category with updated links."))
 	b.WriteString("\n\n")
 
-	// Target info
-	if m.targetNode != nil {
-		typeStr := ""
-		description := ""
-		switch m.targetNode.Type {
-		case application.IDTypeItem:
-			typeStr = "Item"
-			description = "This item will be moved to the archive category with a new ID."
-		case application.IDTypeCategory:
-			typeStr = "Category"
-			description = "All items in this category will be moved to the archive category.\nThe category will be deleted after archiving."
-		default:
-			typeStr = m.targetNode.Type.String()
-			description = "Only items and categories can be archived."
-		}
-
-		b.WriteString(styles.InputLabel.Render(fmt.Sprintf("Archive %s:", typeStr)))
-		b.WriteString("\n")
-		fmt.Fprintf(&b, "  %s %s", m.targetNode.ID, m.targetNode.Name)
+	// Target info with description
+	if m.TargetNode != nil {
+		b.WriteString(RenderTargetInfo(m.TargetNode, "Archive"))
 		b.WriteString("\n\n")
 
+		// Type-specific description
+		description := m.getArchiveDescription()
 		b.WriteString(styles.MutedText.Render("  " + strings.ReplaceAll(description, "\n", "\n  ")))
 		b.WriteString("\n\n")
 
 		// Show archive destination
-		switch m.targetNode.Type {
-		case application.IDTypeItem:
-			categoryID, err := application.ParseCategory(m.targetNode.ID)
-			if err == nil {
-				archiveItemID, err := application.ArchiveItemID(categoryID)
-				if err == nil {
-					b.WriteString(styles.MutedText.Render(fmt.Sprintf("  Destination: %s Archive", archiveItemID)))
-					b.WriteString("\n\n")
-				}
-			}
-		case application.IDTypeCategory:
-			archiveItemID, err := application.ArchiveItemID(m.targetNode.ID)
-			if err == nil {
-				b.WriteString(styles.MutedText.Render(fmt.Sprintf("  Destination: %s Archive", archiveItemID)))
-				b.WriteString("\n\n")
-			}
+		if dest := m.getArchiveDestination(); dest != "" {
+			b.WriteString(styles.MutedText.Render(fmt.Sprintf("  Destination: %s Archive", dest)))
+			b.WriteString("\n\n")
 		}
 	}
 
 	// Confirmation prompt
-	b.WriteString("Proceed with archive? ")
-	b.WriteString(styles.HelpKey.Render("y"))
-	b.WriteString(styles.HelpDesc.Render(" to confirm, "))
-	b.WriteString(styles.HelpKey.Render("n"))
-	b.WriteString(styles.HelpDesc.Render(" to cancel"))
+	b.WriteString(RenderConfirmPrompt("Proceed with archive?"))
 
 	return styles.App.Render(b.String())
+}
+
+func (m *ArchiveModel) getArchiveDescription() string {
+	if m.TargetNode == nil {
+		return ""
+	}
+
+	switch m.TargetNode.Type {
+	case application.IDTypeItem:
+		return "This item will be moved to the archive category with a new ID."
+	case application.IDTypeCategory:
+		return "All items in this category will be moved to the archive category.\nThe category will be deleted after archiving."
+	default:
+		return "Only items and categories can be archived."
+	}
+}
+
+func (m *ArchiveModel) getArchiveDestination() string {
+	if m.TargetNode == nil {
+		return ""
+	}
+
+	switch m.TargetNode.Type {
+	case application.IDTypeItem:
+		categoryID, err := application.ParseCategory(m.TargetNode.ID)
+		if err != nil {
+			return ""
+		}
+		archiveItemID, err := application.ArchiveItemID(categoryID)
+		if err != nil {
+			return ""
+		}
+		return archiveItemID
+
+	case application.IDTypeCategory:
+		archiveItemID, err := application.ArchiveItemID(m.TargetNode.ID)
+		if err != nil {
+			return ""
+		}
+		return archiveItemID
+	}
+
+	return ""
 }

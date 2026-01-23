@@ -115,6 +115,7 @@ type BrowserModel struct {
 	searchInput   textinput.Model
 	searchMatches []application.SearchResult // matched results from repo
 	searchIndex   int                        // current match index
+	searchScorer  *SearchScorer              // fuzzy search scorer
 
 	// For restoring state after reload
 	restoreCursor int
@@ -128,8 +129,9 @@ func NewBrowserModel(repo ports.VaultRepository) *BrowserModel {
 	input.Prompt = "/"
 
 	return &BrowserModel{
-		repo:        repo,
-		searchInput: input,
+		repo:         repo,
+		searchInput:  input,
+		searchScorer: NewSearchScorer(),
 	}
 }
 
@@ -516,7 +518,7 @@ func (m *BrowserModel) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(query) >= 2 {
 		results, err := m.repo.Search(query)
 		if err == nil {
-			m.searchMatches = m.fuzzySort(results, query)
+			m.searchMatches = m.searchScorer.SortResults(results, query)
 			if len(m.searchMatches) > 0 {
 				m.searchIndex = 0
 				m.navigateToResult(m.searchMatches[0])
@@ -527,87 +529,6 @@ func (m *BrowserModel) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, cmd
-}
-
-// fuzzyScore calculates a score for how well target matches query
-func fuzzyScore(target, query string) int {
-	target = strings.ToLower(target)
-	query = strings.ToLower(query)
-
-	if len(query) == 0 {
-		return 0
-	}
-
-	// Check for exact substring match first (highest priority)
-	if strings.Contains(target, query) {
-		score := 100
-		// Bonus if it starts with query
-		if strings.HasPrefix(target, query) {
-			score += 50
-		}
-		return score
-	}
-
-	// Fuzzy match: check if chars appear in order
-	score := 0
-	queryIdx := 0
-	prevMatchIdx := -1
-
-	for i := 0; i < len(target) && queryIdx < len(query); i++ {
-		if target[i] == query[queryIdx] {
-			if prevMatchIdx == i-1 {
-				score += 10 // consecutive
-			}
-			if i == 0 {
-				score += 15 // start
-			}
-			if i > 0 && (target[i-1] == ' ' || target[i-1] == '.' || target[i-1] == '-') {
-				score += 10 // after separator
-			}
-			score += 1
-			prevMatchIdx = i
-			queryIdx++
-		}
-	}
-
-	if queryIdx == len(query) {
-		return score
-	}
-	return 0
-}
-
-// fuzzySort sorts search results by relevance to query
-func (m *BrowserModel) fuzzySort(results []application.SearchResult, query string) []application.SearchResult {
-	type scored struct {
-		result application.SearchResult
-		score  int
-	}
-
-	var scoredResults []scored
-	for _, r := range results {
-		s1 := fuzzyScore(r.ID, query)
-		s2 := fuzzyScore(r.Name, query)
-		s3 := fuzzyScore(r.MatchedText, query)
-		best := max(s3, max(s2, s1))
-		if best > 0 {
-			scoredResults = append(scoredResults, scored{result: r, score: best})
-		}
-	}
-
-	// Sort by score descending
-	for i := 0; i < len(scoredResults)-1; i++ {
-		for j := i + 1; j < len(scoredResults); j++ {
-			if scoredResults[j].score > scoredResults[i].score {
-				scoredResults[i], scoredResults[j] = scoredResults[j], scoredResults[i]
-			}
-		}
-	}
-
-	sorted := make([]application.SearchResult, len(scoredResults))
-	for i, s := range scoredResults {
-		sorted[i] = s.result
-	}
-	return sorted
 }
 
 // navigateToResult expands the tree path and navigates to a search result (file)

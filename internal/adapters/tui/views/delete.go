@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"libraio/internal/adapters/tui/styles"
@@ -12,40 +11,18 @@ import (
 	"libraio/internal/ports"
 )
 
-// DeleteKeyMap defines key bindings for the delete view
-type DeleteKeyMap struct {
-	Confirm key.Binding
-	Cancel  key.Binding
-}
-
-var DeleteKeys = DeleteKeyMap{
-	Confirm: key.NewBinding(
-		key.WithKeys("y"),
-		key.WithHelp("y", "confirm"),
-	),
-	Cancel: key.NewBinding(
-		key.WithKeys("n", "esc"),
-		key.WithHelp("n/esc", "cancel"),
-	),
-}
-
 // DeleteModel is the model for the delete confirmation view
 type DeleteModel struct {
-	ViewState
-	repo       ports.VaultRepository
-	targetNode *application.TreeNode
+	ConfirmationModel
+	repo ports.VaultRepository
 }
 
 // NewDeleteModel creates a new delete view model
 func NewDeleteModel(repo ports.VaultRepository) *DeleteModel {
 	return &DeleteModel{
-		repo: repo,
+		ConfirmationModel: NewConfirmationModel(),
+		repo:              repo,
 	}
-}
-
-// SetTarget sets the target node for deletion
-func (m *DeleteModel) SetTarget(node *application.TreeNode) {
-	m.targetNode = node
 }
 
 // Init initializes the delete view
@@ -62,33 +39,29 @@ func (m *DeleteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, DeleteKeys.Cancel):
-			return m, func() tea.Msg {
-				return SwitchToBrowserMsg{}
-			}
-
-		case key.Matches(msg, DeleteKeys.Confirm):
-			return m, m.delete()
+		handled, cmd := m.HandleKeyMsg(msg,
+			func() tea.Msg { return m.doDelete() },
+			func() tea.Msg { return SwitchToBrowserMsg{} },
+		)
+		if handled {
+			return m, cmd
 		}
 	}
 
 	return m, nil
 }
 
-func (m *DeleteModel) delete() tea.Cmd {
-	return func() tea.Msg {
-		if m.targetNode == nil {
-			return DeleteErrMsg{Err: fmt.Errorf("no target selected")}
-		}
+func (m *DeleteModel) doDelete() tea.Msg {
+	if m.TargetNode == nil {
+		return DeleteErrMsg{Err: fmt.Errorf("no target selected")}
+	}
 
-		if err := m.repo.Delete(m.targetNode.ID); err != nil {
-			return DeleteErrMsg{Err: err}
-		}
+	if err := m.repo.Delete(m.TargetNode.ID); err != nil {
+		return DeleteErrMsg{Err: err}
+	}
 
-		return DeleteSuccessMsg{
-			Message: fmt.Sprintf("Deleted %s %s", m.targetNode.ID, m.targetNode.Name),
-		}
+	return DeleteSuccessMsg{
+		Message: fmt.Sprintf("Deleted %s %s", m.TargetNode.ID, m.TargetNode.Name),
 	}
 }
 
@@ -115,37 +88,17 @@ func (m *DeleteModel) View() string {
 	b.WriteString("\n\n")
 
 	// Target info
-	if m.targetNode != nil {
-		typeStr := ""
-		switch m.targetNode.Type {
-		case application.IDTypeItem:
-			typeStr = "Item"
-		case application.IDTypeCategory:
-			typeStr = "Category"
-		case application.IDTypeArea:
-			typeStr = "Area"
-		case application.IDTypeScope:
-			typeStr = "Scope"
-		}
+	b.WriteString(RenderTargetInfo(m.TargetNode, "Delete"))
+	b.WriteString("\n\n")
 
-		b.WriteString(styles.InputLabel.Render(fmt.Sprintf("Delete %s:", typeStr)))
-		b.WriteString("\n")
-		b.WriteString(fmt.Sprintf("  %s %s", m.targetNode.ID, m.targetNode.Name))
+	// Additional warning for containers
+	if m.TargetNode != nil && m.TargetNode.Type != application.IDTypeItem {
+		b.WriteString(styles.MutedText.Render("  All contents will be permanently deleted."))
 		b.WriteString("\n\n")
-
-		// Additional warning for containers
-		if m.targetNode.Type != application.IDTypeItem {
-			b.WriteString(styles.MutedText.Render("  All contents will be permanently deleted."))
-			b.WriteString("\n\n")
-		}
 	}
 
 	// Confirmation prompt
-	b.WriteString("Are you sure? ")
-	b.WriteString(styles.HelpKey.Render("y"))
-	b.WriteString(styles.HelpDesc.Render(" to confirm, "))
-	b.WriteString(styles.HelpKey.Render("n"))
-	b.WriteString(styles.HelpDesc.Render(" to cancel"))
+	b.WriteString(RenderConfirmPrompt("Are you sure?"))
 
 	return styles.App.Render(b.String())
 }

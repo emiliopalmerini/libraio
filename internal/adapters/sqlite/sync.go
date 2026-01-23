@@ -21,16 +21,43 @@ func (idx *Index) SyncFull() (*domain.SyncStats, error) {
 	start := time.Now()
 	stats := &domain.SyncStats{}
 
-	// Clear existing data
-	if _, err := idx.db.Exec(`DELETE FROM nodes`); err != nil {
+	// Begin transaction - CRITICAL for performance
+	// Without this, each insert is a separate transaction with disk sync
+	tx, err := idx.db.Begin()
+	if err != nil {
 		return nil, err
 	}
-	if _, err := idx.db.Exec(`DELETE FROM edges`); err != nil {
+	defer tx.Rollback() // Rollback if not committed
+
+	// Clear existing data
+	if _, err := tx.Exec(`DELETE FROM nodes`); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`DELETE FROM edges`); err != nil {
 		return nil, err
 	}
 
+	// Prepare statements once - avoids re-parsing SQL for each insert
+	insertNodeStmt, err := tx.Prepare(`
+		INSERT INTO nodes (path, jd_id, jd_type, name, mtime)
+		VALUES (?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer insertNodeStmt.Close()
+
+	insertEdgeStmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO edges (source_path, target_jd_id, link_text)
+		VALUES (?, ?, ?)
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer insertEdgeStmt.Close()
+
 	// Walk the vault
-	err := filepath.Walk(idx.vaultPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(idx.vaultPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
 		}
@@ -47,36 +74,36 @@ func (idx *Index) SyncFull() (*domain.SyncStats, error) {
 			// Check if directory is a JD node
 			jdID, jdType := extractJDInfo(info.Name())
 			if jdType != domain.IDTypeUnknown {
-				node := &domain.IndexNode{
-					Path:   relPath,
-					JDID:   jdID,
-					JDType: jdType,
-					Name:   extractDescription(info.Name()),
-					Mtime:  info.ModTime().Unix(),
+				_, err := insertNodeStmt.Exec(
+					relPath,
+					nullString(jdID),
+					nullString(jdType.String()),
+					extractDescription(info.Name()),
+					info.ModTime().Unix(),
+				)
+				if err == nil {
+					stats.NodesAdded++
 				}
-				if err := idx.insertNode(node); err != nil {
-					return nil // Continue on error
-				}
-				stats.NodesAdded++
 			}
 		} else if strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
 			// Index markdown file for links
-			node := &domain.IndexNode{
-				Path:   relPath,
-				Name:   info.Name(),
-				JDType: domain.IDTypeUnknown,
-				Mtime:  info.ModTime().Unix(),
+			_, err := insertNodeStmt.Exec(
+				relPath,
+				nil,
+				nil,
+				info.Name(),
+				info.ModTime().Unix(),
+			)
+			if err == nil {
+				stats.NodesAdded++
 			}
-			if err := idx.insertNode(node); err != nil {
-				return nil // Continue on error
-			}
-			stats.NodesAdded++
 
 			// Parse and index links
 			edges, err := parseLinksInFile(filepath.Join(idx.vaultPath, relPath), relPath)
 			if err == nil {
 				for _, edge := range edges {
-					if err := idx.insertEdge(&edge); err == nil {
+					_, err := insertEdgeStmt.Exec(edge.SourcePath, edge.TargetJDID, edge.LinkText)
+					if err == nil {
 						stats.EdgesAdded++
 					}
 				}
@@ -91,8 +118,13 @@ func (idx *Index) SyncFull() (*domain.SyncStats, error) {
 	}
 
 	// Update last sync time
-	idx.db.Exec(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync_time', ?)`,
+	tx.Exec(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync_time', ?)`,
 		time.Now().Unix())
+
+	// Commit the transaction - single disk sync for all operations
+	if err := tx.Commit(); err != nil {
+		return stats, err
+	}
 
 	stats.Duration = time.Since(start)
 	return stats, nil
@@ -123,6 +155,53 @@ func (idx *Index) SyncIncremental() (*domain.SyncStats, error) {
 	// Track paths we've seen during this walk
 	seenPaths := make(map[string]bool)
 
+	// Begin transaction - CRITICAL for performance
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Prepare statements once
+	insertNodeStmt, err := tx.Prepare(`
+		INSERT INTO nodes (path, jd_id, jd_type, name, mtime)
+		VALUES (?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer insertNodeStmt.Close()
+
+	updateNodeStmt, err := tx.Prepare(`
+		UPDATE nodes SET jd_id = ?, jd_type = ?, name = ?, mtime = ?
+		WHERE path = ?
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer updateNodeStmt.Close()
+
+	insertEdgeStmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO edges (source_path, target_jd_id, link_text)
+		VALUES (?, ?, ?)
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer insertEdgeStmt.Close()
+
+	deleteEdgesStmt, err := tx.Prepare(`DELETE FROM edges WHERE source_path = ?`)
+	if err != nil {
+		return nil, err
+	}
+	defer deleteEdgesStmt.Close()
+
+	deleteNodeStmt, err := tx.Prepare(`DELETE FROM nodes WHERE path = ?`)
+	if err != nil {
+		return nil, err
+	}
+	defer deleteNodeStmt.Close()
+
 	// Walk the vault
 	err = filepath.Walk(idx.vaultPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -149,36 +228,34 @@ func (idx *Index) SyncIncremental() (*domain.SyncStats, error) {
 		if info.IsDir() {
 			jdID, jdType := extractJDInfo(info.Name())
 			if jdType != domain.IDTypeUnknown {
-				node := &domain.IndexNode{
-					Path:   relPath,
-					JDID:   jdID,
-					JDType: jdType,
-					Name:   extractDescription(info.Name()),
-					Mtime:  mtime,
-				}
 				if existingPaths[relPath] {
-					idx.updateNode(node)
+					updateNodeStmt.Exec(
+						nullString(jdID),
+						nullString(jdType.String()),
+						extractDescription(info.Name()),
+						mtime,
+						relPath,
+					)
 					stats.NodesUpdated++
 				} else {
-					idx.insertNode(node)
+					insertNodeStmt.Exec(
+						relPath,
+						nullString(jdID),
+						nullString(jdType.String()),
+						extractDescription(info.Name()),
+						mtime,
+					)
 					stats.NodesAdded++
 				}
 			}
 		} else if strings.HasSuffix(strings.ToLower(info.Name()), ".md") {
-			node := &domain.IndexNode{
-				Path:   relPath,
-				Name:   info.Name(),
-				JDType: domain.IDTypeUnknown,
-				Mtime:  mtime,
-			}
-
 			if existingPaths[relPath] {
-				idx.updateNode(node)
+				updateNodeStmt.Exec(nil, nil, info.Name(), mtime, relPath)
 				stats.NodesUpdated++
 				// Delete old edges
-				idx.db.Exec(`DELETE FROM edges WHERE source_path = ?`, relPath)
+				deleteEdgesStmt.Exec(relPath)
 			} else {
-				idx.insertNode(node)
+				insertNodeStmt.Exec(relPath, nil, nil, info.Name(), mtime)
 				stats.NodesAdded++
 			}
 
@@ -186,7 +263,8 @@ func (idx *Index) SyncIncremental() (*domain.SyncStats, error) {
 			edges, err := parseLinksInFile(filepath.Join(idx.vaultPath, relPath), relPath)
 			if err == nil {
 				for _, edge := range edges {
-					if err := idx.insertEdge(&edge); err == nil {
+					_, err := insertEdgeStmt.Exec(edge.SourcePath, edge.TargetJDID, edge.LinkText)
+					if err == nil {
 						stats.EdgesAdded++
 					}
 				}
@@ -203,15 +281,20 @@ func (idx *Index) SyncIncremental() (*domain.SyncStats, error) {
 	// Delete nodes that no longer exist
 	for path := range existingPaths {
 		if !seenPaths[path] {
-			idx.db.Exec(`DELETE FROM nodes WHERE path = ?`, path)
-			idx.db.Exec(`DELETE FROM edges WHERE source_path = ?`, path)
+			deleteNodeStmt.Exec(path)
+			deleteEdgesStmt.Exec(path)
 			stats.NodesDeleted++
 		}
 	}
 
 	// Update last sync time
-	idx.db.Exec(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync_time', ?)`,
+	tx.Exec(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync_time', ?)`,
 		time.Now().Unix())
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return stats, err
+	}
 
 	stats.Duration = time.Since(start)
 	return stats, nil

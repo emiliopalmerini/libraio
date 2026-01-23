@@ -57,6 +57,12 @@ func (idx *Index) Open(vaultPath string) error {
 	}
 	idx.db = db
 
+	// Performance pragmas - these significantly speed up writes
+	db.Exec(`PRAGMA synchronous = NORMAL`) // Safe with WAL, faster than FULL
+	db.Exec(`PRAGMA cache_size = -64000`)  // 64MB page cache
+	db.Exec(`PRAGMA temp_store = MEMORY`)  // Temp tables in RAM
+	db.Exec(`PRAGMA busy_timeout = 5000`)  // 5s timeout if locked
+
 	// Create schema if needed
 	if err := idx.ensureSchema(); err != nil {
 		db.Close()

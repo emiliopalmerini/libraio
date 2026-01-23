@@ -244,11 +244,8 @@ func isTextContent(content []byte) bool {
 		return true
 	}
 	// Check first 512 bytes for null bytes (common in binary files)
-	checkLen := len(content)
-	if checkLen > 512 {
-		checkLen = 512
-	}
-	for i := 0; i < checkLen; i++ {
+	checkLen := min(len(content), 512)
+	for i := range checkLen {
 		if content[i] == 0 {
 			return false
 		}
@@ -271,7 +268,7 @@ func buildVaultContextForLevel(repo ports.VaultRepository, parentID string, leve
 			if num, _ := domain.ExtractNumber(item.ID); num <= domain.StandardZeroMax {
 				continue
 			}
-			b.WriteString(fmt.Sprintf("- %s %s\n", item.ID, item.Name))
+			fmt.Fprintf(&b, "- %s %s\n", item.ID, item.Name)
 		}
 
 	case domain.InboxLevelArea:
@@ -284,13 +281,13 @@ func buildVaultContextForLevel(repo ports.VaultRepository, parentID string, leve
 			if domain.IsAreaManagementCategory(cat.ID) {
 				continue
 			}
-			b.WriteString(fmt.Sprintf("\n%s %s\n", cat.ID, cat.Name))
+			fmt.Fprintf(&b, "\n%s %s\n", cat.ID, cat.Name)
 			items, _ := repo.ListItems(cat.ID)
 			for _, item := range items {
 				if num, _ := domain.ExtractNumber(item.ID); num <= domain.StandardZeroMax {
 					continue
 				}
-				b.WriteString(fmt.Sprintf("  - %s %s\n", item.ID, item.Name))
+				fmt.Fprintf(&b, "  - %s %s\n", item.ID, item.Name)
 			}
 		}
 
@@ -306,7 +303,7 @@ func buildVaultContextForLevel(repo ports.VaultRepository, parentID string, leve
 				if domain.IsAreaManagementCategory(cat.ID) {
 					continue
 				}
-				b.WriteString(fmt.Sprintf("\n%s %s\n", cat.ID, cat.Name))
+				fmt.Fprintf(&b, "\n%s %s\n", cat.ID, cat.Name)
 				items, _ := repo.ListItems(cat.ID)
 				count := 0
 				for _, item := range items {
@@ -317,7 +314,7 @@ func buildVaultContextForLevel(repo ports.VaultRepository, parentID string, leve
 						b.WriteString("  ...\n")
 						break
 					}
-					b.WriteString(fmt.Sprintf("  - %s %s\n", item.ID, item.Name))
+					fmt.Fprintf(&b, "  - %s %s\n", item.ID, item.Name)
 					count++
 				}
 			}
@@ -452,10 +449,7 @@ func (m *SmartCatalogModel) visibleSuggestions() []FileSuggestion {
 	if len(m.suggestions) == 0 {
 		return nil
 	}
-	end := m.pageOffset + m.pageSize
-	if end > len(m.suggestions) {
-		end = len(m.suggestions)
-	}
+	end := min(m.pageOffset+m.pageSize, len(m.suggestions))
 	return m.suggestions[m.pageOffset:end]
 }
 
@@ -552,7 +546,7 @@ func (m *SmartCatalogModel) View() string {
 		b.WriteString(m.spinner.View())
 		fileCount := len(m.suggestions)
 		if fileCount > 0 {
-			b.WriteString(fmt.Sprintf(" Analyzing %d files with Claude...", fileCount))
+			fmt.Fprintf(&b, " Analyzing %d files with Claude...", fileCount)
 		} else {
 			b.WriteString(" Analyzing files with Claude...")
 		}
@@ -589,7 +583,7 @@ func (m *SmartCatalogModel) View() string {
 					b.WriteString(styles.MutedText.Render(" → "))
 					b.WriteString(dest)
 				} else {
-					b.WriteString(fmt.Sprintf("   %s", fs.File.Name))
+					fmt.Fprintf(&b, "   %s", fs.File.Name)
 				}
 				b.WriteString("\n")
 			}
@@ -606,7 +600,7 @@ func (m *SmartCatalogModel) View() string {
 				b.WriteString("\n")
 				if fs.Suggestion != nil {
 					b.WriteString(styles.InputLabel.Render("Destination: "))
-					b.WriteString(fmt.Sprintf("%s %s", fs.Suggestion.DestinationItemID, fs.Suggestion.DestinationItemName))
+					fmt.Fprintf(&b, "%s %s", fs.Suggestion.DestinationItemID, fs.Suggestion.DestinationItemName)
 					b.WriteString("\n")
 					b.WriteString(styles.InputLabel.Render("Reasoning: "))
 					b.WriteString(styles.MutedText.Render(fs.Suggestion.Reasoning))
@@ -636,12 +630,12 @@ func (m *SmartCatalogModel) View() string {
 			b.WriteString(styles.HelpDesc.Render(" cancel"))
 
 			// Status
-			b.WriteString(fmt.Sprintf("     %d remaining", len(m.suggestions)))
+			fmt.Fprintf(&b, "     %d remaining", len(m.suggestions))
 			if m.moved > 0 {
-				b.WriteString(fmt.Sprintf(", %d moved", m.moved))
+				fmt.Fprintf(&b, ", %d moved", m.moved)
 			}
 			if len(m.skipped) > 0 {
-				b.WriteString(fmt.Sprintf(", %d skipped", len(m.skipped)))
+				fmt.Fprintf(&b, ", %d skipped", len(m.skipped))
 			}
 		}
 

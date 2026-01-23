@@ -246,7 +246,8 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if node := m.selectedNode(); node != nil {
 				var pathToOpen string
 
-				if node.Type == application.IDTypeFile {
+				switch node.Type {
+				case application.IDTypeFile:
 					// Check if Obsidian can open this file type
 					if canObsidianOpen(node.Path) {
 						pathToOpen = node.Path
@@ -254,7 +255,7 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// Fall back to parent item's JDex
 						pathToOpen = m.getJDexPath(node.Parent)
 					}
-				} else if node.Type == application.IDTypeItem {
+				case application.IDTypeItem:
 					pathToOpen = m.getJDexPath(node)
 				}
 
@@ -587,13 +588,7 @@ func (m *BrowserModel) fuzzySort(results []application.SearchResult, query strin
 		s1 := fuzzyScore(r.ID, query)
 		s2 := fuzzyScore(r.Name, query)
 		s3 := fuzzyScore(r.MatchedText, query)
-		best := s1
-		if s2 > best {
-			best = s2
-		}
-		if s3 > best {
-			best = s3
-		}
+		best := max(s3, max(s2, s1))
 		if best > 0 {
 			scoredResults = append(scoredResults, scored{result: r, score: best})
 		}
@@ -784,10 +779,7 @@ func (m *BrowserModel) View() string {
 
 	// Tree (only render visible portion)
 	viewHeight := m.treeViewHeight()
-	endIdx := m.viewport + viewHeight
-	if endIdx > len(m.flatNodes) {
-		endIdx = len(m.flatNodes)
-	}
+	endIdx := min(m.viewport+viewHeight, len(m.flatNodes))
 
 	for i := m.viewport; i < endIdx; i++ {
 		node := m.flatNodes[i]
@@ -960,10 +952,7 @@ func (m *BrowserModel) ensureCursorVisible() {
 	}
 
 	// Clamp viewport
-	maxViewport := len(m.flatNodes) - viewHeight
-	if maxViewport < 0 {
-		maxViewport = 0
-	}
+	maxViewport := max(len(m.flatNodes)-viewHeight, 0)
 	if m.viewport > maxViewport {
 		m.viewport = maxViewport
 	}

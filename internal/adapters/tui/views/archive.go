@@ -158,14 +158,15 @@ func (m *ArchiveModel) View() string {
 
 		b.WriteString(styles.InputLabel.Render(fmt.Sprintf("Archive %s:", typeStr)))
 		b.WriteString("\n")
-		b.WriteString(fmt.Sprintf("  %s %s", m.targetNode.ID, m.targetNode.Name))
+		fmt.Fprintf(&b, "  %s %s", m.targetNode.ID, m.targetNode.Name)
 		b.WriteString("\n\n")
 
 		b.WriteString(styles.MutedText.Render("  " + strings.ReplaceAll(description, "\n", "\n  ")))
 		b.WriteString("\n\n")
 
 		// Show archive destination
-		if m.targetNode.Type == application.IDTypeItem {
+		switch m.targetNode.Type {
+		case application.IDTypeItem:
 			categoryID, err := application.ParseCategory(m.targetNode.ID)
 			if err == nil {
 				archiveItemID, err := application.ArchiveItemID(categoryID)
@@ -174,7 +175,7 @@ func (m *ArchiveModel) View() string {
 					b.WriteString("\n\n")
 				}
 			}
-		} else if m.targetNode.Type == application.IDTypeCategory {
+		case application.IDTypeCategory:
 			archiveItemID, err := application.ArchiveItemID(m.targetNode.ID)
 			if err == nil {
 				b.WriteString(styles.MutedText.Render(fmt.Sprintf("  Destination: %s Archive", archiveItemID)))

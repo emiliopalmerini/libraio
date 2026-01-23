@@ -138,3 +138,42 @@ func ScopeColor(scopeID string) lipgloss.Color {
 		return Primary
 	}
 }
+
+// NodeType represents the type of a tree node for styling purposes
+type NodeType int
+
+const (
+	NodeTypeUnknown NodeType = iota
+	NodeTypeScope
+	NodeTypeArea
+	NodeTypeCategory
+	NodeTypeCategoryArchive
+	NodeTypeItem
+	NodeTypeFile
+)
+
+// NodeStyler provides styles for different node types
+type NodeStyler struct{}
+
+// GetStyle returns the appropriate style for a node type
+func (s *NodeStyler) GetStyle(nodeType NodeType, scopeID string) lipgloss.Style {
+	switch nodeType {
+	case NodeTypeScope:
+		return NodeScope.Foreground(ScopeColor(scopeID))
+	case NodeTypeArea:
+		return NodeArea
+	case NodeTypeCategory:
+		return NodeCategory
+	case NodeTypeCategoryArchive:
+		return NodeArchive
+	case NodeTypeItem:
+		return NodeItem
+	case NodeTypeFile:
+		return MutedText
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+// DefaultNodeStyler is the default node styler instance
+var DefaultNodeStyler = &NodeStyler{}

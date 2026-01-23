@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"libraio/internal/adapters/tui/styles"
 	"libraio/internal/application"
@@ -759,26 +758,11 @@ func (m *BrowserModel) renderNode(node *application.TreeNode, selected bool) str
 		text = fmt.Sprintf("%s %s", node.ID, node.Name) // "ID Description"
 	}
 
-	// Apply style based on type
-	var style lipgloss.Style
-	switch node.Type {
-	case application.IDTypeScope:
-		scopeColor := styles.ScopeColor(node.ID)
-		style = styles.NodeScope.Foreground(scopeColor)
-	case application.IDTypeArea:
-		style = styles.NodeArea
-	case application.IDTypeCategory:
-		if strings.HasSuffix(node.ID, "9") {
-			style = styles.NodeArchive
-		} else {
-			style = styles.NodeCategory
-		}
-	case application.IDTypeItem:
-		style = styles.NodeItem
-	case application.IDTypeFile:
-		style = styles.MutedText
-	}
+	// Map application IDType to styles NodeType
+	nodeType := mapToNodeType(node)
 
+	// Get style from NodeStyler
+	style := styles.DefaultNodeStyler.GetStyle(nodeType, node.ID)
 	styledText := style.Render(text)
 
 	if selected {
@@ -786,6 +770,27 @@ func (m *BrowserModel) renderNode(node *application.TreeNode, selected bool) str
 	}
 
 	return fmt.Sprintf("%s%s%s", indent, styles.TreeBranch.Render(prefix), styledText)
+}
+
+// mapToNodeType converts application.IDType to styles.NodeType
+func mapToNodeType(node *application.TreeNode) styles.NodeType {
+	switch node.Type {
+	case application.IDTypeScope:
+		return styles.NodeTypeScope
+	case application.IDTypeArea:
+		return styles.NodeTypeArea
+	case application.IDTypeCategory:
+		if strings.HasSuffix(node.ID, "9") {
+			return styles.NodeTypeCategoryArchive
+		}
+		return styles.NodeTypeCategory
+	case application.IDTypeItem:
+		return styles.NodeTypeItem
+	case application.IDTypeFile:
+		return styles.NodeTypeFile
+	default:
+		return styles.NodeTypeUnknown
+	}
 }
 
 // keyHelp extracts the help text from a key.Binding

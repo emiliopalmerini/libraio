@@ -41,7 +41,9 @@ var CreateKeys = CreateKeyMap{
 type CreateMode int
 
 const (
-	CreateModeCategory CreateMode = iota
+	CreateModeScope CreateMode = iota
+	CreateModeArea
+	CreateModeCategory
 	CreateModeItem
 )
 
@@ -83,16 +85,18 @@ func (m *CreateModel) SetParent(node *application.TreeNode) {
 
 	// Determine mode and prefill parent
 	switch node.Type {
+	case application.IDTypeUnknown: // Root - create scope
+		m.mode = CreateModeScope
+		m.parentInput.SetValue("")
+	case application.IDTypeScope:
+		m.mode = CreateModeArea
+		m.parentInput.SetValue(node.ID)
 	case application.IDTypeArea:
 		m.mode = CreateModeCategory
 		m.parentInput.SetValue(node.ID)
 	case application.IDTypeCategory:
 		m.mode = CreateModeItem
 		m.parentInput.SetValue(node.ID)
-	case application.IDTypeScope:
-		// Need to select area first
-		m.mode = CreateModeCategory
-		m.parentInput.SetValue("")
 	default:
 		m.parentInput.SetValue("")
 	}
@@ -155,17 +159,38 @@ func (m *CreateModel) create() tea.Cmd {
 		parentID := strings.TrimSpace(m.parentInput.Value())
 		description := strings.TrimSpace(m.descInput.Value())
 
-		if parentID == "" {
-			return CreateErrMsg{Err: fmt.Errorf("parent ID is required")}
-		}
 		if description == "" {
 			return CreateErrMsg{Err: fmt.Errorf("description is required")}
 		}
 
 		ctx := context.Background()
+
+		// Handle scope creation (no parent needed)
+		if m.mode == CreateModeScope {
+			cmd := commands.NewCreateScopeCommand(m.repo, description)
+			result, err := cmd.Execute(ctx)
+			if err != nil {
+				return CreateErrMsg{Err: err}
+			}
+			return CreateSuccessMsg{Message: result.Message}
+		}
+
+		// All other modes require a parent
+		if parentID == "" {
+			return CreateErrMsg{Err: fmt.Errorf("parent ID is required")}
+		}
+
 		parentType := application.ParseIDType(parentID)
 
 		switch parentType {
+		case application.IDTypeScope:
+			cmd := commands.NewCreateAreaCommand(m.repo, parentID, description)
+			result, err := cmd.Execute(ctx)
+			if err != nil {
+				return CreateErrMsg{Err: err}
+			}
+			return CreateSuccessMsg{Message: result.Message}
+
 		case application.IDTypeArea:
 			cmd := commands.NewCreateCategoryCommand(m.repo, parentID, description)
 			result, err := cmd.Execute(ctx)
@@ -189,7 +214,7 @@ func (m *CreateModel) create() tea.Cmd {
 			return CreateSuccessMsg{Message: result.Message}
 
 		default:
-			return CreateErrMsg{Err: fmt.Errorf("invalid parent type: %s (expected area or category)", parentType)}
+			return CreateErrMsg{Err: fmt.Errorf("invalid parent type: %s", parentType)}
 		}
 	}
 }
@@ -214,40 +239,48 @@ type OpenEditorMsg struct {
 func (m *CreateModel) View() string {
 	var b strings.Builder
 
-	// Title
-	title := "Create New Item"
-	if m.mode == CreateModeCategory {
+	// Title and instructions based on mode
+	var title, subtitle, parentLabel string
+	switch m.mode {
+	case CreateModeScope:
+		title = "Create New Scope"
+		subtitle = "Creating a new scope in the vault."
+		parentLabel = "" // No parent for scope
+	case CreateModeArea:
+		title = "Create New Area"
+		subtitle = "Creating a new area in scope."
+		parentLabel = "Parent (Scope ID):"
+	case CreateModeCategory:
 		title = "Create New Category"
+		subtitle = "Creating category in area. Standard zeros will be created."
+		parentLabel = "Parent (Area ID):"
+	case CreateModeItem:
+		title = "Create New Item"
+		subtitle = "Creating item in category. A JDex file will be generated."
+		parentLabel = "Parent (Category ID):"
 	}
+
 	b.WriteString(styles.Title.Render(title))
 	b.WriteString("\n\n")
-
-	// Instructions
-	if m.mode == CreateModeItem {
-		b.WriteString(styles.Subtitle.Render("Creating item in category. A README will be generated."))
-	} else {
-		b.WriteString(styles.Subtitle.Render("Creating category in area. No README will be created."))
-	}
+	b.WriteString(styles.Subtitle.Render(subtitle))
 	b.WriteString("\n\n")
 
-	// Parent ID field
-	parentLabel := "Parent (Category ID):"
-	if m.mode == CreateModeCategory {
-		parentLabel = "Parent (Area ID):"
+	// Parent ID field (not shown for scope creation)
+	if m.mode != CreateModeScope {
+		b.WriteString(styles.InputLabel.Render(parentLabel))
+		b.WriteString("\n")
+		if m.focusedField == 0 {
+			b.WriteString(styles.InputFocused.Render(m.parentInput.View()))
+		} else {
+			b.WriteString(styles.InputField.Render(m.parentInput.View()))
+		}
+		b.WriteString("\n\n")
 	}
-	b.WriteString(styles.InputLabel.Render(parentLabel))
-	b.WriteString("\n")
-	if m.focusedField == 0 {
-		b.WriteString(styles.InputFocused.Render(m.parentInput.View()))
-	} else {
-		b.WriteString(styles.InputField.Render(m.parentInput.View()))
-	}
-	b.WriteString("\n\n")
 
 	// Description field
 	b.WriteString(styles.InputLabel.Render("Description:"))
 	b.WriteString("\n")
-	if m.focusedField == 1 {
+	if m.focusedField == 1 || m.mode == CreateModeScope {
 		b.WriteString(styles.InputFocused.Render(m.descInput.View()))
 	} else {
 		b.WriteString(styles.InputField.Render(m.descInput.View()))

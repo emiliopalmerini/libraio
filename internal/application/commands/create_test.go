@@ -152,6 +152,18 @@ func TestDetermineCreateMode(t *testing.T) {
 		wantErr    bool
 	}{
 		{
+			name:       "root creates scope",
+			parentType: domain.IDTypeUnknown,
+			wantMode:   CreateModeScope,
+			wantErr:    false,
+		},
+		{
+			name:       "scope creates area",
+			parentType: domain.IDTypeScope,
+			wantMode:   CreateModeArea,
+			wantErr:    false,
+		},
+		{
 			name:       "area creates category",
 			parentType: domain.IDTypeArea,
 			wantMode:   CreateModeCategory,
@@ -164,13 +176,13 @@ func TestDetermineCreateMode(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:       "scope cannot create",
-			parentType: domain.IDTypeScope,
+			name:       "item cannot create",
+			parentType: domain.IDTypeItem,
 			wantErr:    true,
 		},
 		{
-			name:       "item cannot create",
-			parentType: domain.IDTypeItem,
+			name:       "file cannot create",
+			parentType: domain.IDTypeFile,
 			wantErr:    true,
 		},
 	}

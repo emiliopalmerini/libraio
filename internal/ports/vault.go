@@ -11,6 +11,8 @@ type VaultRepository interface {
 	ListItems(categoryID string) ([]domain.Item, error)
 
 	// Create operations
+	CreateScope(description string) (*domain.Scope, error)
+	CreateArea(scopeID, description string) (*domain.Area, error)
 	CreateCategory(areaID, description string) (*domain.Category, error)
 	CreateItem(categoryID, description string) (*domain.Item, error)
 

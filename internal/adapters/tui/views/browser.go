@@ -65,7 +65,7 @@ var BrowserKeys = BrowserKeyMap{
 	),
 	Yank: key.NewBinding(
 		key.WithKeys("y"),
-		key.WithHelp("y", "copy ID"),
+		key.WithHelp("y", "copy wikilink"),
 	),
 	New: key.NewBinding(
 		key.WithKeys("n"),
@@ -268,14 +268,17 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, BrowserKeys.Yank):
 			if node := m.selectedNode(); node != nil {
-				// Get nearest ID (for files, use parent's ID)
-				id := node.ID
-				if node.Type == application.IDTypeFile && node.Parent != nil {
-					id = node.Parent.ID
+				var wikilink string
+				if node.Type == application.IDTypeFile {
+					// For files: [[filename]]
+					wikilink = fmt.Sprintf("[[%s]]", node.Name)
+				} else if node.ID != "" {
+					// For JD entities: [[ID Name]]
+					wikilink = fmt.Sprintf("[[%s %s]]", node.ID, node.Name)
 				}
-				if id != "" {
-					clipboard.WriteAll(id)
-					m.Message = fmt.Sprintf("Yanked: %s", id)
+				if wikilink != "" {
+					clipboard.WriteAll(wikilink)
+					m.Message = fmt.Sprintf("Yanked: %s", wikilink)
 					m.MessageErr = false
 				}
 			}
@@ -489,8 +492,16 @@ func (m *BrowserModel) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle 'y' for yank in search mode
 	if msg.String() == "y" && len(m.searchMatches) > 0 {
 		result := m.searchMatches[m.searchIndex]
-		clipboard.WriteAll(result.ID)
-		m.Message = fmt.Sprintf("Yanked: %s", result.ID)
+		var wikilink string
+		if result.Type == application.IDTypeFile {
+			// For files: [[filename]]
+			wikilink = fmt.Sprintf("[[%s]]", result.Name)
+		} else {
+			// For JD entities: [[ID Name]] - MatchedText already has "ID Name" format
+			wikilink = fmt.Sprintf("[[%s]]", result.MatchedText)
+		}
+		clipboard.WriteAll(wikilink)
+		m.Message = fmt.Sprintf("Yanked: %s", wikilink)
 		m.MessageErr = false
 		return m, nil
 	}
@@ -895,6 +906,10 @@ func (m *BrowserModel) renderHelpLine() string {
 		case application.IDTypeArea:
 			bindings = append(bindings,
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new category")),
+			)
+		case application.IDTypeScope:
+			bindings = append(bindings,
+				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new area")),
 			)
 		}
 	}

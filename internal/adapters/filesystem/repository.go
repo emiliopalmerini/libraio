@@ -101,6 +101,36 @@ func (r *Repository) nextAvailableCategoryID(areaID string) (string, error) {
 	return domain.NextCategoryID(areaID, existingIDs)
 }
 
+// nextAvailableScopeID returns the next available scope ID
+func (r *Repository) nextAvailableScopeID() (string, error) {
+	existing, err := r.ListScopes()
+	if err != nil {
+		return "", err
+	}
+
+	var existingIDs []string
+	for _, scope := range existing {
+		existingIDs = append(existingIDs, scope.ID)
+	}
+
+	return domain.NextScopeID(existingIDs)
+}
+
+// nextAvailableAreaID returns the next available area ID in a scope
+func (r *Repository) nextAvailableAreaID(scopeID string) (string, error) {
+	existing, err := r.ListAreas(scopeID)
+	if err != nil {
+		return "", err
+	}
+
+	var existingIDs []string
+	for _, area := range existing {
+		existingIDs = append(existingIDs, area.ID)
+	}
+
+	return domain.NextAreaID(scopeID, existingIDs)
+}
+
 // NewRepository creates a new filesystem repository
 func NewRepository(vaultPath string, opts ...RepoOption) *Repository {
 	// Expand ~ to home directory
@@ -263,6 +293,54 @@ func (r *Repository) ListItems(categoryID string) ([]domain.Item, error) {
 	domain.SortItems(items)
 
 	return items, nil
+}
+
+// CreateScope creates a new scope in the vault
+func (r *Repository) CreateScope(description string) (*domain.Scope, error) {
+	newID, err := r.nextAvailableScopeID()
+	if err != nil {
+		return nil, err
+	}
+
+	folderName := domain.FormatFolderName(newID, description)
+	scopePath := filepath.Join(r.vaultPath, folderName)
+
+	if err := os.MkdirAll(scopePath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create scope: %w", err)
+	}
+
+	return &domain.Scope{
+		ID:   newID,
+		Name: description,
+		Path: scopePath,
+	}, nil
+}
+
+// CreateArea creates a new area in a scope
+func (r *Repository) CreateArea(scopeID, description string) (*domain.Area, error) {
+	scopePath, err := r.findScopePath(scopeID)
+	if err != nil {
+		return nil, err
+	}
+
+	newID, err := r.nextAvailableAreaID(scopeID)
+	if err != nil {
+		return nil, err
+	}
+
+	folderName := domain.FormatFolderName(newID, description)
+	areaPath := filepath.Join(scopePath, folderName)
+
+	if err := os.MkdirAll(areaPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create area: %w", err)
+	}
+
+	return &domain.Area{
+		ID:      newID,
+		Name:    description,
+		Path:    areaPath,
+		ScopeID: scopeID,
+	}, nil
 }
 
 // CreateCategory creates a new category in an area with standard zero items

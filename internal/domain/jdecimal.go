@@ -171,6 +171,65 @@ func ExtractNumber(id string) (int, error) {
 	}
 }
 
+// NextScopeID generates the next scope ID
+func NextScopeID(existingScopes []string) (string, error) {
+	used := make(map[int]bool)
+	for _, s := range existingScopes {
+		if num, err := ExtractNumber(s); err == nil {
+			used[num] = true
+		}
+	}
+
+	// Find next available (S01-S99)
+	for i := 1; i <= 99; i++ {
+		if !used[i] {
+			return fmt.Sprintf("S%02d", i), nil
+		}
+	}
+
+	return "", fmt.Errorf("no available scope IDs")
+}
+
+// NextAreaID generates the next area ID within a scope
+func NextAreaID(scopeID string, existingAreas []string) (string, error) {
+	if ParseIDType(scopeID) != IDTypeScope {
+		return "", fmt.Errorf("invalid scope ID: %s", scopeID)
+	}
+
+	// Parse existing area starts (e.g., S01.10-19 -> 10, S01.20-29 -> 20)
+	used := make(map[int]bool)
+	for _, a := range existingAreas {
+		if ParseIDType(a) != IDTypeArea {
+			continue
+		}
+		// Extract the tens digit (start of range)
+		parts := strings.Split(a, ".")
+		if len(parts) != 2 {
+			continue
+		}
+		rangeParts := strings.Split(parts[1], "-")
+		if len(rangeParts) != 2 {
+			continue
+		}
+		start, err := strconv.Atoi(rangeParts[0])
+		if err != nil {
+			continue
+		}
+		used[start] = true
+	}
+
+	// Find next available (10-19, 20-29, ..., 90-99)
+	// Skip 00-09 as that's the scope management area
+	for i := 1; i <= 9; i++ {
+		start := i * 10
+		if !used[start] {
+			return fmt.Sprintf("%s.%02d-%02d", scopeID, start, start+9), nil
+		}
+	}
+
+	return "", fmt.Errorf("no available area IDs in scope %s", scopeID)
+}
+
 // NextCategoryID generates the next category ID within an area
 func NextCategoryID(area string, existingCategories []string) (string, error) {
 	if ParseIDType(area) != IDTypeArea {

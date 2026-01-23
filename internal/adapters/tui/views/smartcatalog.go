@@ -27,11 +27,14 @@ const (
 
 // SmartCatalogKeyMap defines key bindings for the smart catalog view
 type SmartCatalogKeyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Confirm key.Binding
-	Skip    key.Binding
-	Cancel  key.Binding
+	Up            key.Binding
+	Down          key.Binding
+	Confirm       key.Binding
+	Skip          key.Binding
+	Cancel        key.Binding
+	NextPage      key.Binding
+	PrevPage      key.Binding
+	ReviewSkipped key.Binding
 }
 
 var SmartCatalogKeys = SmartCatalogKeyMap{
@@ -55,6 +58,18 @@ var SmartCatalogKeys = SmartCatalogKeyMap{
 		key.WithKeys("esc"),
 		key.WithHelp("esc", "cancel"),
 	),
+	NextPage: key.NewBinding(
+		key.WithKeys("ctrl+f", "pgdown"),
+		key.WithHelp("ctrl+f", "next page"),
+	),
+	PrevPage: key.NewBinding(
+		key.WithKeys("ctrl+b", "pgup"),
+		key.WithHelp("ctrl+b", "prev page"),
+	),
+	ReviewSkipped: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "review skipped"),
+	),
 }
 
 // FileSuggestion pairs a file with its suggestion
@@ -70,11 +85,19 @@ type SmartCatalogModel struct {
 	assistant   ports.AIAssistant
 	inboxNode   *application.TreeNode // The inbox item node
 	suggestions []FileSuggestion      // All suggestions from Claude
-	cursor      int                   // Currently selected suggestion
+	cursor      int                   // Currently selected suggestion (absolute index)
 	moved       int                   // Count of files moved
 	state       SmartCatalogState
 	err         error
 	spinner     spinner.Model
+
+	// Pagination
+	pageSize   int // Number of items per page (default 10)
+	pageOffset int // Current page start index
+
+	// Skipped items for retry
+	skipped    []FileSuggestion // Skipped files
+	reviewMode bool             // True when reviewing skipped items
 }
 
 // NewSmartCatalogModel creates a new smart catalog view model
@@ -88,6 +111,7 @@ func NewSmartCatalogModel(repo ports.VaultRepository, assistant ports.AIAssistan
 		assistant: assistant,
 		spinner:   s,
 		state:     SmartCatalogLoading,
+		pageSize:  10,
 	}
 }
 
@@ -99,6 +123,9 @@ func (m *SmartCatalogModel) SetSource(node *application.TreeNode) {
 	m.moved = 0
 	m.err = nil
 	m.state = SmartCatalogLoading
+	m.pageOffset = 0
+	m.skipped = nil
+	m.reviewMode = false
 }
 
 // Init initializes the smart catalog view
@@ -342,12 +369,20 @@ func (m *SmartCatalogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, SmartCatalogKeys.Up):
 				if m.cursor > 0 {
 					m.cursor--
+					m.ensureCursorInPage()
 				}
 				return m, nil
 			case key.Matches(msg, SmartCatalogKeys.Down):
 				if m.cursor < len(m.suggestions)-1 {
 					m.cursor++
+					m.ensureCursorInPage()
 				}
+				return m, nil
+			case key.Matches(msg, SmartCatalogKeys.NextPage):
+				m.nextPage()
+				return m, nil
+			case key.Matches(msg, SmartCatalogKeys.PrevPage):
+				m.prevPage()
 				return m, nil
 			case key.Matches(msg, SmartCatalogKeys.Confirm):
 				if len(m.suggestions) > 0 && m.cursor < len(m.suggestions) {
@@ -355,20 +390,40 @@ func (m *SmartCatalogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case key.Matches(msg, SmartCatalogKeys.Skip):
-				// Move to next, or finish if at end
-				if m.cursor < len(m.suggestions)-1 {
-					m.cursor++
-				} else if len(m.suggestions) > 0 {
-					// At last item, remove it and stay at valid index
+				if len(m.suggestions) == 0 {
+					return m, nil
+				}
+				// Move current item to skipped list
+				if m.cursor < len(m.suggestions) {
+					m.skipped = append(m.skipped, m.suggestions[m.cursor])
 					m.suggestions = append(m.suggestions[:m.cursor], m.suggestions[m.cursor+1:]...)
+					// Adjust cursor if needed
 					if m.cursor >= len(m.suggestions) && m.cursor > 0 {
 						m.cursor = len(m.suggestions) - 1
 					}
+					m.ensureCursorInPage()
+					// Check if we're done with main list
 					if len(m.suggestions) == 0 {
-						return m, func() tea.Msg {
-							return SmartCatalogDoneMsg{Moved: m.moved}
+						if len(m.skipped) > 0 {
+							// Prompt to review skipped
+							m.Message = fmt.Sprintf("All files processed. %d skipped - press 'r' to review", len(m.skipped))
+						} else {
+							return m, func() tea.Msg {
+								return SmartCatalogDoneMsg{Moved: m.moved}
+							}
 						}
 					}
+				}
+				return m, nil
+			case key.Matches(msg, SmartCatalogKeys.ReviewSkipped):
+				if len(m.skipped) > 0 && !m.reviewMode {
+					// Switch to review mode
+					m.reviewMode = true
+					m.suggestions = m.skipped
+					m.skipped = nil
+					m.cursor = 0
+					m.pageOffset = 0
+					m.Message = ""
 				}
 				return m, nil
 			}
@@ -390,6 +445,62 @@ func (m *SmartCatalogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// visibleSuggestions returns the suggestions for the current page
+func (m *SmartCatalogModel) visibleSuggestions() []FileSuggestion {
+	if len(m.suggestions) == 0 {
+		return nil
+	}
+	end := m.pageOffset + m.pageSize
+	if end > len(m.suggestions) {
+		end = len(m.suggestions)
+	}
+	return m.suggestions[m.pageOffset:end]
+}
+
+// cursorInPage returns the cursor position relative to the current page
+func (m *SmartCatalogModel) cursorInPage() int {
+	return m.cursor - m.pageOffset
+}
+
+// totalPages returns the total number of pages
+func (m *SmartCatalogModel) totalPages() int {
+	if len(m.suggestions) == 0 {
+		return 1
+	}
+	return (len(m.suggestions) + m.pageSize - 1) / m.pageSize
+}
+
+// currentPage returns the current page number (1-based)
+func (m *SmartCatalogModel) currentPage() int {
+	return m.pageOffset/m.pageSize + 1
+}
+
+// nextPage moves to the next page
+func (m *SmartCatalogModel) nextPage() {
+	if m.pageOffset+m.pageSize < len(m.suggestions) {
+		m.pageOffset += m.pageSize
+		m.cursor = m.pageOffset
+	}
+}
+
+// prevPage moves to the previous page
+func (m *SmartCatalogModel) prevPage() {
+	m.pageOffset -= m.pageSize
+	if m.pageOffset < 0 {
+		m.pageOffset = 0
+	}
+	m.cursor = m.pageOffset
+}
+
+// ensureCursorInPage ensures cursor is within the current page
+func (m *SmartCatalogModel) ensureCursorInPage() {
+	if m.cursor < m.pageOffset {
+		m.pageOffset = (m.cursor / m.pageSize) * m.pageSize
+	} else if m.cursor >= m.pageOffset+m.pageSize {
+		m.pageOffset = (m.cursor / m.pageSize) * m.pageSize
+	}
 }
 
 func (m *SmartCatalogModel) moveCurrentFile() tea.Cmd {
@@ -452,11 +563,23 @@ func (m *SmartCatalogModel) View() string {
 
 	case SmartCatalogShowList:
 		if len(m.suggestions) == 0 {
-			b.WriteString(styles.MutedText.Render("No files to catalog"))
+			if len(m.skipped) > 0 {
+				b.WriteString(styles.MutedText.Render(fmt.Sprintf("No files remaining. %d skipped - press 'r' to review", len(m.skipped))))
+			} else {
+				b.WriteString(styles.MutedText.Render("No files to catalog"))
+			}
 		} else {
-			// File list
-			for i, fs := range m.suggestions {
-				if i == m.cursor {
+			// Review mode header
+			if m.reviewMode {
+				b.WriteString(styles.Success.Render("Reviewing skipped files"))
+				b.WriteString("\n\n")
+			}
+
+			// File list (paginated)
+			visible := m.visibleSuggestions()
+			for i, fs := range visible {
+				absIndex := m.pageOffset + i
+				if absIndex == m.cursor {
 					// Selected item with destination
 					dest := "no suggestion"
 					if fs.Suggestion != nil {
@@ -469,6 +592,12 @@ func (m *SmartCatalogModel) View() string {
 					b.WriteString(fmt.Sprintf("   %s", fs.File.Name))
 				}
 				b.WriteString("\n")
+			}
+
+			// Page indicator (if more than one page)
+			if m.totalPages() > 1 {
+				b.WriteString("\n")
+				b.WriteString(styles.MutedText.Render(fmt.Sprintf("Page %d/%d", m.currentPage(), m.totalPages())))
 			}
 
 			// Details for selected item
@@ -491,10 +620,18 @@ func (m *SmartCatalogModel) View() string {
 			b.WriteString("\n")
 			b.WriteString(styles.HelpKey.Render("j/k"))
 			b.WriteString(styles.HelpDesc.Render(" navigate, "))
+			if m.totalPages() > 1 {
+				b.WriteString(styles.HelpKey.Render("ctrl+f/b"))
+				b.WriteString(styles.HelpDesc.Render(" page, "))
+			}
 			b.WriteString(styles.HelpKey.Render("y"))
 			b.WriteString(styles.HelpDesc.Render(" accept, "))
 			b.WriteString(styles.HelpKey.Render("n"))
 			b.WriteString(styles.HelpDesc.Render(" skip, "))
+			if len(m.skipped) > 0 && !m.reviewMode {
+				b.WriteString(styles.HelpKey.Render("r"))
+				b.WriteString(styles.HelpDesc.Render(fmt.Sprintf(" review (%d), ", len(m.skipped))))
+			}
 			b.WriteString(styles.HelpKey.Render("esc"))
 			b.WriteString(styles.HelpDesc.Render(" cancel"))
 
@@ -502,6 +639,9 @@ func (m *SmartCatalogModel) View() string {
 			b.WriteString(fmt.Sprintf("     %d remaining", len(m.suggestions)))
 			if m.moved > 0 {
 				b.WriteString(fmt.Sprintf(", %d moved", m.moved))
+			}
+			if len(m.skipped) > 0 {
+				b.WriteString(fmt.Sprintf(", %d skipped", len(m.skipped)))
 			}
 		}
 
@@ -527,6 +667,7 @@ func (m *SmartCatalogModel) HandleFileMoved() {
 		if m.cursor >= len(m.suggestions) && m.cursor > 0 {
 			m.cursor = len(m.suggestions) - 1
 		}
+		m.ensureCursorInPage()
 	}
 }
 

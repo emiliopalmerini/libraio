@@ -5,8 +5,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"libraio/internal/adapters/editor"
-	"libraio/internal/adapters/obsidian"
 	"libraio/internal/adapters/tui/views"
 	"libraio/internal/ports"
 )
@@ -37,8 +35,8 @@ const (
 // App is the main TUI application model
 type App struct {
 	repo      ports.VaultRepository
-	editor    *editor.Opener
-	obsidian  *obsidian.Opener
+	editor    ports.EditorOpener
+	obsidian  ports.ObsidianOpener
 	assistant ports.AIAssistant
 
 	state        ViewState
@@ -55,7 +53,7 @@ type App struct {
 }
 
 // NewApp creates a new TUI application
-func NewApp(repo ports.VaultRepository, ed *editor.Opener, obs *obsidian.Opener, assistant ports.AIAssistant) *App {
+func NewApp(repo ports.VaultRepository, ed ports.EditorOpener, obs ports.ObsidianOpener, assistant ports.AIAssistant) *App {
 	return &App{
 		repo:         repo,
 		editor:       ed,

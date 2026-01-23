@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,6 +30,10 @@ var jdIDPattern = regexp.MustCompile(`^(S0[0-9]\.[0-9][0-9](?:\.[0-9][0-9])?)`)
 func (idx *Index) SyncFull() (*domain.SyncStats, error) {
 	start := time.Now()
 	stats := &domain.SyncStats{}
+
+	// Temporarily disable sync for faster bulk writes (safe - we can rebuild)
+	idx.db.Exec(`PRAGMA synchronous = OFF`)
+	defer idx.db.Exec(`PRAGMA synchronous = NORMAL`)
 
 	// Begin transaction - CRITICAL for performance
 	tx, err := idx.db.Begin()
@@ -123,9 +128,10 @@ func (idx *Index) SyncFull() (*domain.SyncStats, error) {
 	}
 
 	// Process markdown files in parallel
-	numWorkers := runtime.NumCPU()
-	if numWorkers > 8 {
-		numWorkers = 8 // Cap workers to avoid too many open files
+	// Use more workers for I/O bound tasks
+	numWorkers := runtime.NumCPU() * 2
+	if numWorkers > 32 {
+		numWorkers = 32
 	}
 
 	// Channel for files to process
@@ -396,6 +402,11 @@ func parseLinksInFile(fullPath, relPath string) ([]domain.Edge, error) {
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
 		return nil, err
+	}
+
+	// Quick check for [[ before expensive regex
+	if !bytes.Contains(content, []byte("[[")) {
+		return nil, nil
 	}
 
 	var edges []domain.Edge

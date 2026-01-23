@@ -11,7 +11,7 @@ import (
 	"libraio/internal/domain"
 	"libraio/internal/ports"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const schemaVersion = "1"
@@ -51,49 +51,36 @@ func (idx *Index) Open(vaultPath string) error {
 	}
 
 	// Open database with WAL mode for better concurrency
-	db, err := sql.Open("sqlite", idx.dbPath+"?_journal_mode=WAL")
+	db, err := sql.Open("sqlite3", idx.dbPath+"?_journal_mode=WAL")
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	idx.db = db
 
-	// Performance pragmas + schema in single batch (reduces round-trips)
-	_, err = db.Exec(`
-		PRAGMA synchronous = NORMAL;
-		PRAGMA cache_size = -64000;
-		PRAGMA temp_store = MEMORY;
-		PRAGMA busy_timeout = 5000;
+	// Performance pragmas (always needed)
+	db.Exec(`PRAGMA synchronous=NORMAL; PRAGMA cache_size=-64000; PRAGMA temp_store=MEMORY; PRAGMA mmap_size=268435456`)
 
-		CREATE TABLE IF NOT EXISTS nodes (
-			path TEXT PRIMARY KEY,
-			jd_id TEXT,
-			jd_type TEXT,
-			name TEXT,
-			mtime INTEGER NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS edges (
-			source_path TEXT NOT NULL,
-			target_jd_id TEXT NOT NULL,
-			link_text TEXT NOT NULL,
-			PRIMARY KEY (source_path, link_text)
-		);
-		CREATE TABLE IF NOT EXISTS meta (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		);
-		CREATE INDEX IF NOT EXISTS idx_nodes_jd_id ON nodes(jd_id);
-		CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_jd_id);
-		CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_path);
-	`)
-	if err != nil {
-		db.Close()
-		return fmt.Errorf("failed to setup database: %w", err)
-	}
-
-	// Update metadata
-	if err := idx.updateMeta(); err != nil {
-		db.Close()
-		return fmt.Errorf("failed to update metadata: %w", err)
+	// Check if schema exists (fast path for warm startup)
+	var exists int
+	if err := db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta' LIMIT 1`).Scan(&exists); err != nil {
+		// Schema doesn't exist, create it
+		_, err = db.Exec(`
+			CREATE TABLE nodes (path TEXT PRIMARY KEY, jd_id TEXT, jd_type TEXT, name TEXT, mtime INTEGER NOT NULL);
+			CREATE TABLE edges (source_path TEXT NOT NULL, target_jd_id TEXT NOT NULL, link_text TEXT NOT NULL, PRIMARY KEY (source_path, link_text));
+			CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+			CREATE INDEX idx_nodes_jd_id ON nodes(jd_id);
+			CREATE INDEX idx_edges_target ON edges(target_jd_id);
+			CREATE INDEX idx_edges_source ON edges(source_path);
+		`)
+		if err != nil {
+			db.Close()
+			return fmt.Errorf("failed to create schema: %w", err)
+		}
+		// Set initial metadata for new DB
+		if err := idx.updateMeta(); err != nil {
+			db.Close()
+			return fmt.Errorf("failed to set metadata: %w", err)
+		}
 	}
 
 	return nil
@@ -110,13 +97,15 @@ func (idx *Index) Close() error {
 // NeedsFullRebuild returns true if the index should be fully rebuilt
 func (idx *Index) NeedsFullRebuild() bool {
 	var version, vaultHash string
+	var nodeCount int
 
 	idx.db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version)
 	idx.db.QueryRow("SELECT value FROM meta WHERE key = 'vault_path_hash'").Scan(&vaultHash)
+	idx.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount)
 
 	expectedHash := hashVaultPath(idx.vaultPath)
 
-	return version != schemaVersion || vaultHash != expectedHash
+	return version != schemaVersion || vaultHash != expectedHash || nodeCount == 0
 }
 
 // databasePath returns the path for the SQLite database

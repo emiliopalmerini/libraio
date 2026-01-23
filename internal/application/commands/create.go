@@ -283,10 +283,10 @@ func (c *CreateCategoryCommand) Execute(ctx context.Context) (*CreateCategoryRes
 
 // CreateResult is a unified result type for all create operations
 type CreateResult struct {
-	ID        string // The ID of the created entity
-	Name      string // The name of the created entity
-	Message   string // Human-readable success message
-	JDexPath  string // Path to JDex file (only for items)
+	ID         string // The ID of the created entity
+	Name       string // The name of the created entity
+	Message    string // Human-readable success message
+	JDexPath   string // Path to JDex file (only for items)
 	EntityType string // Type of entity created (scope, area, category, item)
 }
 

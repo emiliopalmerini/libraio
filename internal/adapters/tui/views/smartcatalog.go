@@ -233,6 +233,32 @@ func matchSuggestionsToFiles(files []ports.FileInfo, suggestions []ports.Catalog
 	return result
 }
 
+// swapToAlternatives creates a new slice with alternative suggestions promoted to primary
+func swapToAlternatives(suggestions []FileSuggestion) []FileSuggestion {
+	result := make([]FileSuggestion, 0, len(suggestions))
+	for _, fs := range suggestions {
+		newFS := FileSuggestion{File: fs.File}
+		if fs.Suggestion != nil && fs.Suggestion.AltDestinationItemID != "" {
+			// Promote alternative to primary
+			newFS.Suggestion = &ports.CatalogSuggestion{
+				FileName:            fs.Suggestion.FileName,
+				DestinationItemID:   fs.Suggestion.AltDestinationItemID,
+				DestinationItemName: fs.Suggestion.AltDestinationItemName,
+				Reasoning:           fs.Suggestion.AltReasoning,
+				// Store original as new alternative (for potential future use)
+				AltDestinationItemID:   fs.Suggestion.DestinationItemID,
+				AltDestinationItemName: fs.Suggestion.DestinationItemName,
+				AltReasoning:           fs.Suggestion.Reasoning,
+			}
+		} else {
+			// No alternative available, keep original
+			newFS.Suggestion = fs.Suggestion
+		}
+		result = append(result, newFS)
+	}
+	return result
+}
+
 // isTextContent checks if content appears to be text (not binary)
 func isTextContent(content []byte) bool {
 	if len(content) == 0 {
@@ -399,9 +425,9 @@ func (m *SmartCatalogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case key.Matches(msg, SmartCatalogKeys.ReviewSkipped):
 				if len(m.skipped) > 0 && !m.reviewMode {
-					// Switch to review mode
+					// Switch to review mode with alternative suggestions
 					m.reviewMode = true
-					m.suggestions = m.skipped
+					m.suggestions = swapToAlternatives(m.skipped)
 					m.skipped = nil
 					m.paginator.Reset()
 					m.paginator.SetTotal(len(m.suggestions))
@@ -543,7 +569,11 @@ func (m *SmartCatalogModel) View() string {
 				fs := m.suggestions[cursor]
 				b.WriteString("\n")
 				if fs.Suggestion != nil {
-					b.WriteString(styles.InputLabel.Render("Destination: "))
+					destLabel := "Destination: "
+					if m.reviewMode {
+						destLabel = "Alternative: "
+					}
+					b.WriteString(styles.InputLabel.Render(destLabel))
 					fmt.Fprintf(&b, "%s %s", fs.Suggestion.DestinationItemID, fs.Suggestion.DestinationItemName)
 					b.WriteString("\n")
 					b.WriteString(styles.InputLabel.Render("Reasoning: "))

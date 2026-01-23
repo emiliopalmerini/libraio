@@ -56,6 +56,10 @@ type suggestionJSON struct {
 	ItemID    string `json:"itemID"`
 	ItemName  string `json:"itemName"`
 	Reasoning string `json:"reasoning"`
+	// Alternative suggestion
+	AltItemID    string `json:"altItemID,omitempty"`
+	AltItemName  string `json:"altItemName,omitempty"`
+	AltReasoning string `json:"altReasoning,omitempty"`
 }
 
 // SuggestCatalogDestinations analyzes multiple files and suggests destinations
@@ -111,11 +115,14 @@ Analyze these files from the inbox and suggest where each should be moved:
 Available items in this vault:
 %s
 
-For EACH file, suggest the best existing item to move it into.
+For EACH file, suggest TWO destinations ranked by relevance:
+1. Primary: the best existing item
+2. Alternative: a second-best option (different from primary)
+
 Return ONLY a JSON array (no markdown, no code blocks):
 [
-  {"fileName": "file1.pdf", "itemID": "S01.11.15", "itemName": "Theatre", "reasoning": "Brief explanation"},
-  {"fileName": "file2.txt", "itemID": "S01.21.11", "itemName": "CSharp", "reasoning": "Brief explanation"}
+  {"fileName": "file1.pdf", "itemID": "S01.11.15", "itemName": "Theatre", "reasoning": "Brief explanation", "altItemID": "S01.11.16", "altItemName": "Movies", "altReasoning": "Alternative explanation"},
+  {"fileName": "file2.txt", "itemID": "S01.21.11", "itemName": "CSharp", "reasoning": "Brief explanation", "altItemID": "S01.21.12", "altItemName": "Programming", "altReasoning": "Alternative explanation"}
 ]`, filesList.String(), vaultStructure)
 }
 
@@ -154,6 +161,10 @@ func parseBatchSuggestions(result string) ([]ports.CatalogSuggestion, error) {
 			DestinationItemID:   raw.ItemID,
 			DestinationItemName: raw.ItemName,
 			Reasoning:           raw.Reasoning,
+			// Alternative suggestion
+			AltDestinationItemID:   raw.AltItemID,
+			AltDestinationItemName: raw.AltItemName,
+			AltReasoning:           raw.AltReasoning,
 		})
 	}
 

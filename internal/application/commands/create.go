@@ -280,3 +280,93 @@ func (c *CreateCategoryCommand) Execute(ctx context.Context) (*CreateCategoryRes
 		Message:  fmt.Sprintf("Created category: %s %s", cat.ID, cat.Name),
 	}, nil
 }
+
+// CreateResult is a unified result type for all create operations
+type CreateResult struct {
+	ID        string // The ID of the created entity
+	Name      string // The name of the created entity
+	Message   string // Human-readable success message
+	JDexPath  string // Path to JDex file (only for items)
+	EntityType string // Type of entity created (scope, area, category, item)
+}
+
+// CreateCommandFactory creates the appropriate create command based on parent type.
+// This follows the Open/Closed principle - to add new entity types, add a new case
+// rather than modifying existing code throughout the codebase.
+type CreateCommandFactory struct {
+	repo ports.VaultRepository
+}
+
+// NewCreateCommandFactory creates a new command factory
+func NewCreateCommandFactory(repo ports.VaultRepository) *CreateCommandFactory {
+	return &CreateCommandFactory{repo: repo}
+}
+
+// Execute creates the appropriate entity based on parent type and returns a unified result.
+// Returns the result and any JDex path (for items that should be opened in editor).
+func (f *CreateCommandFactory) Execute(ctx context.Context, parentID, description string) (*CreateResult, error) {
+	parentType := domain.ParseIDType(parentID)
+
+	// Handle root (create scope)
+	if parentID == "" || parentType == domain.IDTypeUnknown {
+		cmd := NewCreateScopeCommand(f.repo, description)
+		result, err := cmd.Execute(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &CreateResult{
+			ID:         result.Scope.ID,
+			Name:       result.Scope.Name,
+			Message:    result.Message,
+			EntityType: "scope",
+		}, nil
+	}
+
+	switch parentType {
+	case domain.IDTypeScope:
+		cmd := NewCreateAreaCommand(f.repo, parentID, description)
+		result, err := cmd.Execute(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &CreateResult{
+			ID:         result.Area.ID,
+			Name:       result.Area.Name,
+			Message:    result.Message,
+			EntityType: "area",
+		}, nil
+
+	case domain.IDTypeArea:
+		cmd := NewCreateCategoryCommand(f.repo, parentID, description)
+		result, err := cmd.Execute(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &CreateResult{
+			ID:         result.Category.ID,
+			Name:       result.Category.Name,
+			Message:    result.Message,
+			EntityType: "category",
+		}, nil
+
+	case domain.IDTypeCategory:
+		cmd := NewCreateItemCommand(f.repo, parentID, description)
+		result, err := cmd.Execute(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &CreateResult{
+			ID:         result.Item.ID,
+			Name:       result.Item.Name,
+			Message:    result.Message,
+			JDexPath:   result.Item.JDexPath,
+			EntityType: "item",
+		}, nil
+
+	default:
+		return nil, &application.ValidationError{
+			Field:   "parentID",
+			Message: fmt.Sprintf("cannot create under %s", parentType),
+		}
+	}
+}

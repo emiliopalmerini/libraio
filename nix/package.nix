@@ -5,7 +5,7 @@ pkgs.buildGoModule {
   version = "0.2.0";
   src = pkgs.lib.cleanSource ../.;
 
-  vendorHash = "sha256-6/WETwkyqYlE5lThsC3a+jO6bnqmnyjCN4l71vSUXak=";
+  vendorHash = "sha256-FKeVWxOLNvGcN7X9Q9ALLB9b5Ns0vMbXrt2T6Ww0M0A=";
 
   subPackages = [ "cmd/libraio" "cmd/libraio-cli" ];
 

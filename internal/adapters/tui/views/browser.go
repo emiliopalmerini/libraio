@@ -64,7 +64,7 @@ var BrowserKeys = BrowserKeyMap{
 	),
 	Yank: key.NewBinding(
 		key.WithKeys("y"),
-		key.WithHelp("y", "copy wikilink"),
+		key.WithHelp("y", "copy path"),
 	),
 	New: key.NewBinding(
 		key.WithKeys("n"),
@@ -270,18 +270,26 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, BrowserKeys.Yank):
 			if node := m.selectedNode(); node != nil {
-				var wikilink string
-				if node.Type == application.IDTypeFile {
-					// For files: [[filename]]
-					wikilink = fmt.Sprintf("[[%s]]", node.Name)
-				} else if node.ID != "" {
-					// For JD entities: [[ID Name]]
-					wikilink = fmt.Sprintf("[[%s %s]]", node.ID, node.Name)
+				var pathToYank string
+				var err error
+
+				switch node.Type {
+				case application.IDTypeFile:
+					pathToYank = node.Path
+				case application.IDTypeItem:
+					pathToYank, err = m.repo.GetJDexPath(node.ID)
+				default:
+					// For scopes, areas, categories: use directory path
+					pathToYank = node.Path
 				}
-				if wikilink != "" {
-					clipboard.WriteAll(wikilink)
-					m.Message = fmt.Sprintf("Yanked: %s", wikilink)
-					m.MessageErr = false
+
+				if err == nil && pathToYank != "" {
+					relPath, err := filepath.Rel(m.repo.VaultPath(), pathToYank)
+					if err == nil {
+						clipboard.WriteAll(relPath)
+						m.Message = fmt.Sprintf("Yanked: %s", relPath)
+						m.MessageErr = false
+					}
 				}
 			}
 			return m, nil
@@ -494,17 +502,27 @@ func (m *BrowserModel) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle 'y' for yank in search mode
 	if msg.String() == "y" && len(m.searchMatches) > 0 {
 		result := m.searchMatches[m.searchIndex]
-		var wikilink string
-		if result.Type == application.IDTypeFile {
-			// For files: [[filename]]
-			wikilink = fmt.Sprintf("[[%s]]", result.Name)
-		} else {
-			// For JD entities: [[ID Name]] - MatchedText already has "ID Name" format
-			wikilink = fmt.Sprintf("[[%s]]", result.MatchedText)
+		var pathToYank string
+		var err error
+
+		switch result.Type {
+		case application.IDTypeFile:
+			pathToYank = result.Path
+		case application.IDTypeItem:
+			pathToYank, err = m.repo.GetJDexPath(result.ID)
+		default:
+			// For scopes, areas, categories: use directory path
+			pathToYank = result.Path
 		}
-		clipboard.WriteAll(wikilink)
-		m.Message = fmt.Sprintf("Yanked: %s", wikilink)
-		m.MessageErr = false
+
+		if err == nil && pathToYank != "" {
+			relPath, err := filepath.Rel(m.repo.VaultPath(), pathToYank)
+			if err == nil {
+				clipboard.WriteAll(relPath)
+				m.Message = fmt.Sprintf("Yanked: %s", relPath)
+				m.MessageErr = false
+			}
+		}
 		return m, nil
 	}
 

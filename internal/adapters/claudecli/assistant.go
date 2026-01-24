@@ -174,3 +174,119 @@ func parseBatchSuggestions(result string) ([]ports.CatalogSuggestion, error) {
 
 	return suggestions, nil
 }
+
+// IsAvailable checks if the claude CLI is installed and accessible
+func (a *Assistant) IsAvailable() bool {
+	_, err := exec.LookPath("claude")
+	return err == nil
+}
+
+// searchResultJSON represents the expected JSON format from Claude's smart search response
+type searchResultJSON struct {
+	Path      string  `json:"path"`
+	JDID      string  `json:"jdid"`
+	Name      string  `json:"name"`
+	Type      string  `json:"type"`
+	Score     float64 `json:"score"`
+	Reasoning string  `json:"reasoning"`
+}
+
+// SmartSearch performs AI-powered natural language search against vault structure
+func (a *Assistant) SmartSearch(query string, vaultStructure string) ([]ports.SmartSearchResult, error) {
+	prompt := buildSearchPrompt(query, vaultStructure)
+
+	args := []string{
+		"-p", prompt,
+		"--output-format", "json",
+		"--model", a.model,
+	}
+
+	cmd := exec.Command("claude", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("claude CLI error: %s", string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("claude CLI error: %w", err)
+	}
+
+	// Parse the claude CLI JSON response
+	var response claudeResponse
+	if err := json.Unmarshal(output, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse claude response: %w", err)
+	}
+
+	if response.IsError {
+		return nil, fmt.Errorf("claude returned an error: %s", response.Result)
+	}
+
+	return parseSearchResults(response.Result)
+}
+
+func buildSearchPrompt(query, vaultStructure string) string {
+	return fmt.Sprintf(`You are searching a personal knowledge vault organized with Johnny Decimal.
+
+User's query: "%s"
+
+Vault structure:
+%s
+
+Find the most relevant items/categories/areas for this query. Consider:
+- The user might describe content differently than it's named
+- Johnny Decimal IDs indicate categories (e.g., S01.11 = Entertainment, S01.21 = Programming)
+- Match semantic meaning, not just keywords
+
+Return ONLY a JSON array of up to 10 results, ranked by relevance (no markdown, no code blocks):
+[
+  {"path": "S01 Me/S01.10-19 Lifestyle/S01.11 Entertainment", "jdid": "S01.11", "name": "Entertainment", "type": "category", "score": 0.95, "reasoning": "Contains movies, theatre, media content"}
+]
+
+If nothing matches well, return an empty array [].`, query, vaultStructure)
+}
+
+// parseSearchResults extracts the search results JSON array from Claude's response
+func parseSearchResults(result string) ([]ports.SmartSearchResult, error) {
+	result = strings.TrimSpace(result)
+
+	// Try to extract JSON from markdown code blocks if present
+	codeBlockRe := regexp.MustCompile("```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```")
+	if matches := codeBlockRe.FindStringSubmatch(result); len(matches) > 1 {
+		result = strings.TrimSpace(matches[1])
+	}
+
+	// Find JSON array in the text (handles surrounding text)
+	jsonStartIdx := strings.Index(result, "[")
+	jsonEndIdx := strings.LastIndex(result, "]")
+	if jsonStartIdx == -1 || jsonEndIdx == -1 || jsonEndIdx <= jsonStartIdx {
+		// Could be empty result
+		if strings.Contains(result, "[]") {
+			return []ports.SmartSearchResult{}, nil
+		}
+		return nil, fmt.Errorf("no valid JSON array found in response")
+	}
+
+	jsonStr := result[jsonStartIdx : jsonEndIdx+1]
+
+	var rawResults []searchResultJSON
+	if err := json.Unmarshal([]byte(jsonStr), &rawResults); err != nil {
+		return nil, fmt.Errorf("failed to parse search results JSON: %w (json: %s)", err, jsonStr)
+	}
+
+	// Convert to ports.SmartSearchResult
+	var results []ports.SmartSearchResult
+	for _, raw := range rawResults {
+		if raw.JDID == "" {
+			continue // Skip invalid entries
+		}
+		results = append(results, ports.SmartSearchResult{
+			Path:      raw.Path,
+			JDID:      raw.JDID,
+			Name:      raw.Name,
+			Type:      raw.Type,
+			Score:     raw.Score,
+			Reasoning: raw.Reasoning,
+		})
+	}
+
+	return results, nil
+}

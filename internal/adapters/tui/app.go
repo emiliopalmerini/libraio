@@ -29,6 +29,7 @@ const (
 	ViewArchive
 	ViewDelete
 	ViewSmartCatalog
+	ViewSmartSearch
 	ViewHelp
 )
 
@@ -46,7 +47,10 @@ type App struct {
 	archive      *views.ArchiveModel
 	delete       *views.DeleteModel
 	smartCatalog *views.SmartCatalogModel
+	smartSearch  *views.SmartSearchModel
 	help         *views.HelpModel
+
+	smartSearchEnabled bool
 
 	width  int
 	height int
@@ -54,19 +58,26 @@ type App struct {
 
 // NewApp creates a new TUI application
 func NewApp(repo ports.VaultRepository, ed ports.EditorOpener, obs ports.ObsidianOpener, assistant ports.AIAssistant) *App {
+	// Check if AI assistant (Claude CLI) is available
+	smartSearchEnabled := assistant != nil && assistant.IsAvailable()
+
+	browser := views.NewBrowserModel(repo)
+	browser.SetSmartSearchEnabled(smartSearchEnabled)
+
 	return &App{
-		repo:         repo,
-		editor:       ed,
-		obsidian:     obs,
-		assistant:    assistant,
-		state:        ViewBrowser,
-		browser:      views.NewBrowserModel(repo),
-		create:       views.NewCreateModel(repo, ed != nil),
-		move:         views.NewMoveModel(repo),
-		archive:      views.NewArchiveModel(repo),
-		delete:       views.NewDeleteModel(repo),
-		smartCatalog: views.NewSmartCatalogModel(repo, assistant),
-		help:         views.NewHelpModel(),
+		repo:               repo,
+		editor:             ed,
+		obsidian:           obs,
+		assistant:          assistant,
+		state:              ViewBrowser,
+		browser:            browser,
+		create:             views.NewCreateModel(repo, ed != nil),
+		move:               views.NewMoveModel(repo),
+		archive:            views.NewArchiveModel(repo),
+		delete:             views.NewDeleteModel(repo),
+		smartCatalog:       views.NewSmartCatalogModel(repo, assistant),
+		help:               views.NewHelpModel(),
+		smartSearchEnabled: smartSearchEnabled,
 	}
 }
 
@@ -87,6 +98,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.archive.SetSize(msg.Width, msg.Height)
 		a.delete.SetSize(msg.Width, msg.Height)
 		a.smartCatalog.SetSize(msg.Width, msg.Height)
+		if a.smartSearch != nil {
+			a.smartSearch.SetSize(msg.Width, msg.Height)
+		}
 		a.help.SetSize(msg.Width, msg.Height)
 		return a, nil
 
@@ -115,6 +129,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = ViewSmartCatalog
 		a.smartCatalog.SetSource(msg.SourceNode)
 		return a, a.smartCatalog.Init()
+
+	case views.SwitchToSmartSearchMsg:
+		if a.smartSearchEnabled {
+			a.smartSearch = views.NewSmartSearchModel(a.assistant, msg.VaultStructure)
+			a.smartSearch.SetSize(a.width, a.height)
+			a.state = ViewSmartSearch
+			return a, a.smartSearch.Init()
+		}
+		return a, nil
+
+	case views.SmartSearchSelectMsg:
+		a.state = ViewBrowser
+		return a, a.browser.NavigateToID(msg.JDID)
 
 	case views.SwitchToSearchMsg:
 		// Search is now inline in browser, no need to switch
@@ -219,6 +246,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd = a.delete.Update(msg)
 	case ViewSmartCatalog:
 		_, cmd = a.smartCatalog.Update(msg)
+	case ViewSmartSearch:
+		if a.smartSearch != nil {
+			_, cmd = a.smartSearch.Update(msg)
+		}
 	case ViewHelp:
 		_, cmd = a.help.Update(msg)
 	}
@@ -272,6 +303,11 @@ func (a *App) View() string {
 		return a.delete.View()
 	case ViewSmartCatalog:
 		return a.smartCatalog.View()
+	case ViewSmartSearch:
+		if a.smartSearch != nil {
+			return a.smartSearch.View()
+		}
+		return a.browser.View()
 	case ViewHelp:
 		return a.help.View()
 	default:

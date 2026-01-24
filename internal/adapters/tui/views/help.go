@@ -84,6 +84,7 @@ func (m *HelpModel) View() string {
 	b.WriteString(helpLine("o", "Open in Obsidian"))
 	b.WriteString(helpLine("y", "Copy ID to clipboard"))
 	b.WriteString(helpLine("/", "Search"))
+	b.WriteString(helpLine("Ctrl+S", "Smart search (AI)"))
 	b.WriteString("\n")
 
 	// General section

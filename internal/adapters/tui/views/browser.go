@@ -32,6 +32,7 @@ type BrowserKeyMap struct {
 	Archive      key.Binding
 	Delete       key.Binding
 	SmartCatalog key.Binding
+	SmartSearch  key.Binding
 	Search       key.Binding
 	Help         key.Binding
 	Quit         key.Binding
@@ -86,6 +87,10 @@ var BrowserKeys = BrowserKeyMap{
 		key.WithKeys("c"),
 		key.WithHelp("c", "smart catalog"),
 	),
+	SmartSearch: key.NewBinding(
+		key.WithKeys("ctrl+s"),
+		key.WithHelp("ctrl+s", "smart search"),
+	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),
 		key.WithHelp("/", "search"),
@@ -115,6 +120,9 @@ type BrowserModel struct {
 	searchMatches []application.SearchResult // matched results from repo
 	searchIndex   int                        // current match index
 	searchScorer  *SearchScorer              // fuzzy search scorer
+
+	// Smart search (Claude-powered)
+	smartSearchEnabled bool
 
 	// For restoring state after reload
 	restoreCursor int
@@ -328,6 +336,15 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, BrowserKeys.SmartCatalog):
 			return m.handleSmartCatalog()
+
+		case key.Matches(msg, BrowserKeys.SmartSearch):
+			if m.smartSearchEnabled && m.root != nil {
+				vaultStructure := FormatTreeForSearch(m.root)
+				return m, func() tea.Msg {
+					return SwitchToSmartSearchMsg{VaultStructure: vaultStructure}
+				}
+			}
+			return m, nil
 
 		case key.Matches(msg, BrowserKeys.Search):
 			m.searchMode = true
@@ -842,10 +859,11 @@ func (m *BrowserModel) renderHelpLine() string {
 	}
 
 	// Always show search and help
-	bindings = append(bindings,
-		BrowserKeys.Search,
-		BrowserKeys.Help,
-	)
+	bindings = append(bindings, BrowserKeys.Search)
+	if m.smartSearchEnabled {
+		bindings = append(bindings, BrowserKeys.SmartSearch)
+	}
+	bindings = append(bindings, BrowserKeys.Help)
 
 	return RenderHelpLine(bindings...)
 }
@@ -930,4 +948,90 @@ type SwitchToBrowserMsg struct{}
 // OpenObsidianMsg requests opening a file in Obsidian
 type OpenObsidianMsg struct {
 	Path string
+}
+
+// SwitchToSmartSearchMsg requests switching to smart search view
+type SwitchToSmartSearchMsg struct {
+	VaultStructure string
+}
+
+// SmartSearchSelectMsg indicates user selected a result from smart search
+type SmartSearchSelectMsg struct {
+	JDID string
+}
+
+// SetSmartSearchEnabled enables or disables smart search feature
+func (m *BrowserModel) SetSmartSearchEnabled(enabled bool) {
+	m.smartSearchEnabled = enabled
+}
+
+// NavigateToID expands the tree to show the item with given JD ID and returns a command
+func (m *BrowserModel) NavigateToID(jdid string) tea.Cmd {
+	return func() tea.Msg {
+		m.navigateToID(jdid)
+		return nil
+	}
+}
+
+// navigateToID expands the tree path and navigates to a JD ID
+func (m *BrowserModel) navigateToID(jdid string) {
+	if jdid == "" {
+		return
+	}
+
+	// Parse the ID to get parent IDs
+	parts := m.getIDPath(jdid)
+
+	// Expand each level to reach the target
+	current := m.root
+	for _, partID := range parts {
+		// Load children if needed
+		if len(current.Children) == 0 {
+			m.repo.LoadChildren(current)
+		}
+		current.Expand()
+
+		// Find the child with this ID
+		found := false
+		for _, child := range current.Children {
+			if child.ID == partID {
+				current = child
+				found = true
+				break
+			}
+		}
+		if !found {
+			break
+		}
+	}
+
+	// Refresh and find cursor position
+	m.refreshFlatNodes()
+	for i, node := range m.flatNodes {
+		if node.ID == jdid {
+			m.cursor = i
+			m.ensureCursorVisible()
+			return
+		}
+	}
+}
+
+// FormatTreeForSearch returns a text representation of the JDex tree for Claude
+func FormatTreeForSearch(root *application.TreeNode) string {
+	var sb strings.Builder
+	formatNodeForSearch(&sb, root, 0)
+	return sb.String()
+}
+
+func formatNodeForSearch(sb *strings.Builder, node *application.TreeNode, depth int) {
+	// Skip root node
+	if depth > 0 {
+		indent := strings.Repeat("  ", depth-1)
+		sb.WriteString(fmt.Sprintf("%s%s %s\n", indent, node.ID, node.Name))
+	}
+
+	// Recursively format children (need to load them first)
+	for _, child := range node.Children {
+		formatNodeForSearch(sb, child, depth+1)
+	}
 }

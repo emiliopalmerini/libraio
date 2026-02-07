@@ -58,7 +58,9 @@ func (idx *Index) Open(vaultPath string) error {
 	idx.db = db
 
 	// Performance pragmas (always needed)
-	db.Exec(`PRAGMA synchronous=NORMAL; PRAGMA cache_size=-64000; PRAGMA temp_store=MEMORY; PRAGMA mmap_size=268435456`)
+	if _, err := db.Exec(`PRAGMA synchronous=NORMAL; PRAGMA cache_size=-64000; PRAGMA temp_store=MEMORY; PRAGMA mmap_size=268435456`); err != nil {
+		return fmt.Errorf("failed to set pragmas: %w", err)
+	}
 
 	// Check if schema exists (fast path for warm startup)
 	var exists int
@@ -73,12 +75,16 @@ func (idx *Index) Open(vaultPath string) error {
 			CREATE INDEX idx_edges_source ON edges(source_path);
 		`)
 		if err != nil {
-			db.Close()
+			if cerr := db.Close(); cerr != nil {
+				return fmt.Errorf("failed to create schema: %w (also failed to close db: %v)", err, cerr)
+			}
 			return fmt.Errorf("failed to create schema: %w", err)
 		}
 		// Set initial metadata for new DB
 		if err := idx.updateMeta(); err != nil {
-			db.Close()
+			if cerr := db.Close(); cerr != nil {
+				return fmt.Errorf("failed to set metadata: %w (also failed to close db: %v)", err, cerr)
+			}
 			return fmt.Errorf("failed to set metadata: %w", err)
 		}
 	}
@@ -99,9 +105,9 @@ func (idx *Index) NeedsFullRebuild() bool {
 	var version, vaultHash string
 	var nodeCount int
 
-	idx.db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version)
-	idx.db.QueryRow("SELECT value FROM meta WHERE key = 'vault_path_hash'").Scan(&vaultHash)
-	idx.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount)
+	_ = idx.db.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version)
+	_ = idx.db.QueryRow("SELECT value FROM meta WHERE key = 'vault_path_hash'").Scan(&vaultHash)
+	_ = idx.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount)
 
 	expectedHash := hashVaultPath(idx.vaultPath)
 
@@ -255,7 +261,7 @@ func (idx *Index) FindLinksToID(targetJDID string) ([]domain.Edge, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var edges []domain.Edge
 	for rows.Next() {
@@ -278,7 +284,7 @@ func (idx *Index) FindLinksFromFile(sourcePath string) ([]domain.Edge, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var edges []domain.Edge
 	for rows.Next() {

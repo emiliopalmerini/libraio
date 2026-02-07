@@ -18,7 +18,11 @@ func BenchmarkSyncFull(b *testing.B) {
 	if err := idx.Open(vaultPath); err != nil {
 		b.Fatalf("failed to open index: %v", err)
 	}
-	defer idx.Close()
+	defer func() {
+		if err := idx.Close(); err != nil {
+			b.Fatalf("failed to close index: %v", err)
+		}
+	}()
 
 	b.ResetTimer()
 	for b.Loop() {
@@ -39,11 +43,10 @@ func BenchmarkFullStartup(b *testing.B) {
 	// Use a temp DB path for each run
 	tmpDir := b.TempDir()
 
+	b.Setenv("XDG_DATA_HOME", tmpDir)
+
 	b.ResetTimer()
 	for b.Loop() {
-		// Override XDG_DATA_HOME to use temp dir
-		os.Setenv("XDG_DATA_HOME", tmpDir)
-
 		idx := NewIndex()
 		if err := idx.Open(vaultPath); err != nil {
 			b.Fatalf("failed to open index: %v", err)
@@ -54,10 +57,14 @@ func BenchmarkFullStartup(b *testing.B) {
 			b.Fatalf("sync failed: %v", err)
 		}
 
-		idx.Close()
+		if err := idx.Close(); err != nil {
+			b.Fatalf("failed to close index: %v", err)
+		}
 
 		// Clean up for next iteration
-		os.RemoveAll(filepath.Join(tmpDir, "libraio"))
+		if err := os.RemoveAll(filepath.Join(tmpDir, "libraio")); err != nil {
+			b.Fatalf("failed to clean up: %v", err)
+		}
 	}
 }
 
@@ -69,7 +76,7 @@ func BenchmarkWarmStartup(b *testing.B) {
 	}
 
 	tmpDir := b.TempDir()
-	os.Setenv("XDG_DATA_HOME", tmpDir)
+	b.Setenv("XDG_DATA_HOME", tmpDir)
 
 	// First, create the DB with a full sync
 	idx := NewIndex()
@@ -79,7 +86,9 @@ func BenchmarkWarmStartup(b *testing.B) {
 	if _, err := idx.SyncFull(); err != nil {
 		b.Fatalf("initial sync failed: %v", err)
 	}
-	idx.Close()
+	if err := idx.Close(); err != nil {
+		b.Fatalf("failed to close index: %v", err)
+	}
 
 	// Wait a moment to ensure mtime won't trigger updates
 	time.Sleep(10 * time.Millisecond)
@@ -96,6 +105,8 @@ func BenchmarkWarmStartup(b *testing.B) {
 			b.Fatalf("sync failed: %v", err)
 		}
 
-		idx.Close()
+		if err := idx.Close(); err != nil {
+			b.Fatalf("failed to close index: %v", err)
+		}
 	}
 }

@@ -60,13 +60,7 @@ func NewCreateScopeCommand(repo ports.VaultRepository, description string) *Crea
 
 // Validate checks if the create operation is valid
 func (c *CreateScopeCommand) Validate() error {
-	if c.Description == "" {
-		return &application.ValidationError{
-			Field:   "description",
-			Message: "description is required",
-		}
-	}
-	return nil
+	return application.ValidateRequired("description", c.Description)
 }
 
 // Execute runs the create scope command
@@ -110,28 +104,13 @@ func NewCreateAreaCommand(repo ports.VaultRepository, scopeID, description strin
 
 // Validate checks if the create operation is valid
 func (c *CreateAreaCommand) Validate() error {
-	if c.ScopeID == "" {
-		return &application.ValidationError{
-			Field:   "scopeID",
-			Message: "scope ID is required",
-		}
+	if err := application.ValidateRequired("scopeID", c.ScopeID); err != nil {
+		return err
 	}
-
-	if c.Description == "" {
-		return &application.ValidationError{
-			Field:   "description",
-			Message: "description is required",
-		}
+	if err := application.ValidateRequired("description", c.Description); err != nil {
+		return err
 	}
-
-	if domain.ParseIDType(c.ScopeID) != domain.IDTypeScope {
-		return &application.ValidationError{
-			Field:   "scopeID",
-			Message: fmt.Sprintf("expected scope ID, got: %s", c.ScopeID),
-		}
-	}
-
-	return nil
+	return application.ValidateIDType("scopeID", c.ScopeID, domain.IDTypeScope)
 }
 
 // Execute runs the create area command
@@ -175,28 +154,13 @@ func NewCreateItemCommand(repo ports.VaultRepository, categoryID, description st
 
 // Validate checks if the create operation is valid
 func (c *CreateItemCommand) Validate() error {
-	if c.CategoryID == "" {
-		return &application.ValidationError{
-			Field:   "categoryID",
-			Message: "category ID is required",
-		}
+	if err := application.ValidateRequired("categoryID", c.CategoryID); err != nil {
+		return err
 	}
-
-	if c.Description == "" {
-		return &application.ValidationError{
-			Field:   "description",
-			Message: "description is required",
-		}
+	if err := application.ValidateRequired("description", c.Description); err != nil {
+		return err
 	}
-
-	if domain.ParseIDType(c.CategoryID) != domain.IDTypeCategory {
-		return &application.ValidationError{
-			Field:   "categoryID",
-			Message: fmt.Sprintf("expected category ID, got: %s", c.CategoryID),
-		}
-	}
-
-	return nil
+	return application.ValidateIDType("categoryID", c.CategoryID, domain.IDTypeCategory)
 }
 
 // Execute runs the create item command
@@ -240,28 +204,13 @@ func NewCreateCategoryCommand(repo ports.VaultRepository, areaID, description st
 
 // Validate checks if the create operation is valid
 func (c *CreateCategoryCommand) Validate() error {
-	if c.AreaID == "" {
-		return &application.ValidationError{
-			Field:   "areaID",
-			Message: "area ID is required",
-		}
+	if err := application.ValidateRequired("areaID", c.AreaID); err != nil {
+		return err
 	}
-
-	if c.Description == "" {
-		return &application.ValidationError{
-			Field:   "description",
-			Message: "description is required",
-		}
+	if err := application.ValidateRequired("description", c.Description); err != nil {
+		return err
 	}
-
-	if domain.ParseIDType(c.AreaID) != domain.IDTypeArea {
-		return &application.ValidationError{
-			Field:   "areaID",
-			Message: fmt.Sprintf("expected area ID, got: %s", c.AreaID),
-		}
-	}
-
-	return nil
+	return application.ValidateIDType("areaID", c.AreaID, domain.IDTypeArea)
 }
 
 // Execute runs the create category command

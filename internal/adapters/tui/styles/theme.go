@@ -52,6 +52,15 @@ var (
 			Foreground(Muted).
 			Italic(true)
 
+	NodeVisualSelected = lipgloss.NewStyle().
+				Background(lipgloss.Color("#1E3A5F")).
+				Foreground(White)
+
+	NodeCut = lipgloss.NewStyle().
+		Foreground(Muted).
+		Strikethrough(true).
+		Italic(true)
+
 	// Tree indicators
 	TreeBranch    = lipgloss.NewStyle().Foreground(Muted)
 	TreeExpanded  = "▼ "

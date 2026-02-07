@@ -29,6 +29,7 @@ const (
 	ViewArchive
 	ViewDelete
 	ViewSmartCatalog
+	ViewUnarchive
 	ViewSmartSearch
 	ViewHelp
 )
@@ -45,6 +46,7 @@ type App struct {
 	create       *views.CreateModel
 	move         *views.MoveModel
 	archive      *views.ArchiveModel
+	unarchive    *views.UnarchiveModel
 	delete       *views.DeleteModel
 	smartCatalog *views.SmartCatalogModel
 	smartSearch  *views.SmartSearchModel
@@ -74,6 +76,7 @@ func NewApp(repo ports.VaultRepository, ed ports.EditorOpener, obs ports.Obsidia
 		create:             views.NewCreateModel(repo, ed != nil),
 		move:               views.NewMoveModel(repo),
 		archive:            views.NewArchiveModel(repo),
+		unarchive:          views.NewUnarchiveModel(repo),
 		delete:             views.NewDeleteModel(repo),
 		smartCatalog:       views.NewSmartCatalogModel(repo, assistant),
 		help:               views.NewHelpModel(),
@@ -96,6 +99,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.create.SetSize(msg.Width, msg.Height)
 		a.move.SetSize(msg.Width, msg.Height)
 		a.archive.SetSize(msg.Width, msg.Height)
+		a.unarchive.SetSize(msg.Width, msg.Height)
 		a.delete.SetSize(msg.Width, msg.Height)
 		a.smartCatalog.SetSize(msg.Width, msg.Height)
 		if a.smartSearch != nil {
@@ -119,6 +123,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = ViewArchive
 		a.archive.SetTarget(msg.TargetNode)
 		return a, a.archive.Init()
+
+	case views.SwitchToUnarchiveMsg:
+		a.state = ViewUnarchive
+		a.unarchive.SetTarget(msg.TargetNode)
+		return a, a.unarchive.Init()
 
 	case views.SwitchToDeleteMsg:
 		a.state = ViewDelete
@@ -183,6 +192,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.state = ViewBrowser
 		return a, nil
 
+	// Unarchive view messages
+	case views.UnarchiveSuccessMsg:
+		a.state = ViewBrowser
+		return a, a.browser.Reload()
+
+	case views.UnarchiveErrMsg:
+		a.state = ViewBrowser
+		return a, nil
+
 	// Delete view messages
 	case views.DeleteSuccessMsg:
 		a.state = ViewBrowser
@@ -242,6 +260,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, cmd = a.move.Update(msg)
 	case ViewArchive:
 		_, cmd = a.archive.Update(msg)
+	case ViewUnarchive:
+		_, cmd = a.unarchive.Update(msg)
 	case ViewDelete:
 		_, cmd = a.delete.Update(msg)
 	case ViewSmartCatalog:
@@ -299,6 +319,8 @@ func (a *App) View() string {
 		return a.move.View()
 	case ViewArchive:
 		return a.archive.View()
+	case ViewUnarchive:
+		return a.unarchive.View()
 	case ViewDelete:
 		return a.delete.View()
 	case ViewSmartCatalog:

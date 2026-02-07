@@ -848,6 +848,194 @@ func (r *Repository) updateObsidianLinks(oldID, newID, description string) {
 	r.updateVaultLinks(buildLinkReplacements(oldID, description, newFullLink, newAliasPrefix))
 }
 
+// UnarchiveItems restores archived items from an archive folder back to a category
+func (r *Repository) UnarchiveItems(archiveItemID, dstCategoryID string) ([]*domain.Item, error) {
+	// Get archive item path
+	archivePath, err := r.findItemPath(archiveItemID)
+	if err != nil {
+		return nil, fmt.Errorf("archive item not found: %w", err)
+	}
+
+	// Get destination category path
+	dstCategoryPath, err := r.findCategoryPath(dstCategoryID)
+	if err != nil {
+		return nil, fmt.Errorf("destination category not found: %w", err)
+	}
+
+	// Find all [Archived] folders in the archive item
+	entries, err := os.ReadDir(archivePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read archive: %w", err)
+	}
+
+	var restoredItems []*domain.Item
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		if !domain.IsArchivedFolder(entry.Name()) {
+			continue
+		}
+
+		// Extract description from "[Archived] Theatre" -> "Theatre"
+		description := domain.ExtractArchivedDescription(entry.Name())
+		if description == "" {
+			continue
+		}
+
+		// Get next available item ID
+		newID, err := r.nextAvailableItemID(dstCategoryID)
+		if err != nil {
+			continue
+		}
+
+		// Move and rename
+		srcPath := filepath.Join(archivePath, entry.Name())
+		newFolderName := domain.FormatFolderName(newID, description)
+		dstPath := filepath.Join(dstCategoryPath, newFolderName)
+
+		if err := os.Rename(srcPath, dstPath); err != nil {
+			continue
+		}
+
+		// Update/create JDex file
+		newJDexPath := filepath.Join(dstPath, domain.JDexFileName(newFolderName))
+		archivedJDexName := entry.Name() + ".md"
+		_ = updateJDexFile(dstPath, entry.Name(), newJDexPath, func(content string) string {
+			return domain.UpdateReadmeForUnarchive(content, newID, description)
+		})
+		// Also try removing the old archived jdex if it still exists
+		oldJDexPath := filepath.Join(dstPath, archivedJDexName)
+		if oldJDexPath != newJDexPath {
+			_ = os.Remove(oldJDexPath)
+		}
+
+		// Update Obsidian links: [[Archived] Theatre]] -> [[S01.11.15 Theatre]]
+		r.updateObsidianLinksForUnarchive(description, newID)
+
+		restoredItems = append(restoredItems, &domain.Item{
+			ID:         newID,
+			Name:       description,
+			Path:       dstPath,
+			CategoryID: dstCategoryID,
+			JDexPath:   newJDexPath,
+		})
+	}
+
+	if len(restoredItems) == 0 {
+		return nil, fmt.Errorf("no archived items found in %s", archiveItemID)
+	}
+
+	return restoredItems, nil
+}
+
+// updateObsidianLinksForUnarchive updates wiki links when unarchiving
+func (r *Repository) updateObsidianLinksForUnarchive(description, newID string) {
+	archivedName := "[Archived] " + description
+	newFullLink := fmt.Sprintf("[[%s %s]]", newID, description)
+
+	replacements := []LinkReplacement{
+		{Old: fmt.Sprintf("[[%s]]", archivedName), New: newFullLink},
+		{Old: `\[\[` + regexp.QuoteMeta(archivedName) + `\|`, New: fmt.Sprintf("[[%s %s|", newID, description), IsRegex: true},
+	}
+
+	r.updateVaultLinks(replacements)
+}
+
+// RenameItem renames an item's description (folder and JDex file)
+func (r *Repository) RenameItem(itemID, newDescription string) (*domain.Item, error) {
+	srcPath, err := r.findItemPath(itemID)
+	if err != nil {
+		return nil, fmt.Errorf("item not found: %w", err)
+	}
+
+	oldFolderName := filepath.Base(srcPath)
+	newFolderName := domain.FormatFolderName(itemID, newDescription)
+	dstPath := filepath.Join(filepath.Dir(srcPath), newFolderName)
+
+	if err := os.Rename(srcPath, dstPath); err != nil {
+		return nil, fmt.Errorf("failed to rename item: %w", err)
+	}
+
+	// Update JDex file
+	newJDexPath := filepath.Join(dstPath, domain.JDexFileName(newFolderName))
+	oldDescription := domain.ExtractDescription(oldFolderName)
+	_ = updateJDexFile(dstPath, oldFolderName, newJDexPath, func(content string) string {
+		return domain.UpdateReadmeID(content, itemID, itemID, newDescription)
+	})
+
+	// Update Obsidian links
+	r.updateObsidianLinksForRename(itemID, oldDescription, newDescription)
+
+	categoryID, _ := domain.ParseCategory(itemID)
+	return &domain.Item{
+		ID:         itemID,
+		Name:       newDescription,
+		Path:       dstPath,
+		CategoryID: categoryID,
+		JDexPath:   newJDexPath,
+	}, nil
+}
+
+// RenameCategory renames a category's description (folder only, items keep their IDs)
+func (r *Repository) RenameCategory(categoryID, newDescription string) (*domain.Category, error) {
+	srcPath, err := r.findCategoryPath(categoryID)
+	if err != nil {
+		return nil, fmt.Errorf("category not found: %w", err)
+	}
+
+	oldFolderName := filepath.Base(srcPath)
+	newFolderName := domain.FormatFolderName(categoryID, newDescription)
+	dstPath := filepath.Join(filepath.Dir(srcPath), newFolderName)
+
+	if err := os.Rename(srcPath, dstPath); err != nil {
+		return nil, fmt.Errorf("failed to rename category: %w", err)
+	}
+
+	oldDescription := domain.ExtractDescription(oldFolderName)
+	r.updateObsidianLinksForRename(categoryID, oldDescription, newDescription)
+
+	areaID, _ := domain.ParseArea(categoryID)
+	return &domain.Category{
+		ID:     categoryID,
+		Name:   newDescription,
+		Path:   dstPath,
+		AreaID: areaID,
+	}, nil
+}
+
+// RenameArea renames an area's description (folder only)
+func (r *Repository) RenameArea(areaID, newDescription string) (*domain.Area, error) {
+	srcPath, err := r.findAreaPath(areaID)
+	if err != nil {
+		return nil, fmt.Errorf("area not found: %w", err)
+	}
+
+	newFolderName := domain.FormatFolderName(areaID, newDescription)
+	dstPath := filepath.Join(filepath.Dir(srcPath), newFolderName)
+
+	if err := os.Rename(srcPath, dstPath); err != nil {
+		return nil, fmt.Errorf("failed to rename area: %w", err)
+	}
+
+	scopeID, _ := domain.ParseScope(areaID)
+	return &domain.Area{
+		ID:      areaID,
+		Name:    newDescription,
+		Path:    dstPath,
+		ScopeID: scopeID,
+	}, nil
+}
+
+// updateObsidianLinksForRename updates wiki links when an entity is renamed (same ID, new description)
+func (r *Repository) updateObsidianLinksForRename(id, oldDescription, newDescription string) {
+	newFullLink := fmt.Sprintf("[[%s %s]]", id, newDescription)
+	newAliasPrefix := fmt.Sprintf("[[%s %s|", id, newDescription)
+
+	r.updateVaultLinks(buildLinkReplacements(id, oldDescription, newFullLink, newAliasPrefix))
+}
+
 // Delete removes an item, category, area, or scope by ID
 func (r *Repository) Delete(id string) error {
 	path, err := r.GetPath(id)

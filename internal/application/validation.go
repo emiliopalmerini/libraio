@@ -26,12 +26,12 @@ func ValidateRequired(fieldName, value string) error {
 func formatFieldName(fieldName string) string {
 	// Handle common patterns directly
 	replacements := map[string]string{
-		"categoryID":   "category ID",
-		"areaID":       "area ID",
-		"scopeID":      "scope ID",
-		"itemID":       "item ID",
-		"description":  "description",
-		"sourceID":     "source ID",
+		"categoryID":    "category ID",
+		"areaID":        "area ID",
+		"scopeID":       "scope ID",
+		"itemID":        "item ID",
+		"description":   "description",
+		"sourceID":      "source ID",
 		"destinationID": "destination ID",
 	}
 

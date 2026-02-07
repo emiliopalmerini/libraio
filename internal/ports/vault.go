@@ -48,6 +48,18 @@ type VaultArchiver interface {
 	ArchiveCategory(srcCategoryID string) ([]*domain.Item, error)
 }
 
+// VaultUnarchiver provides unarchive operations
+type VaultUnarchiver interface {
+	UnarchiveItems(archiveItemID, dstCategoryID string) ([]*domain.Item, error)
+}
+
+// VaultRenamer provides rename operations
+type VaultRenamer interface {
+	RenameItem(itemID, newDescription string) (*domain.Item, error)
+	RenameCategory(categoryID, newDescription string) (*domain.Category, error)
+	RenameArea(areaID, newDescription string) (*domain.Area, error)
+}
+
 // VaultDeleter provides delete operations
 type VaultDeleter interface {
 	Delete(id string) error
@@ -63,5 +75,7 @@ type VaultRepository interface {
 	VaultCreator
 	VaultMover
 	VaultArchiver
+	VaultUnarchiver
+	VaultRenamer
 	VaultDeleter
 }

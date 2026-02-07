@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,8 +30,13 @@ type BrowserKeyMap struct {
 	Yank         key.Binding
 	New          key.Binding
 	Move         key.Binding
+	Rename       key.Binding
 	Archive      key.Binding
+	Unarchive    key.Binding
 	Delete       key.Binding
+	Visual       key.Binding
+	Cut          key.Binding
+	Paste        key.Binding
 	SmartCatalog key.Binding
 	SmartSearch  key.Binding
 	Search       key.Binding
@@ -75,13 +81,33 @@ var BrowserKeys = BrowserKeyMap{
 		key.WithKeys("m"),
 		key.WithHelp("m", "move"),
 	),
+	Rename: key.NewBinding(
+		key.WithKeys("i"),
+		key.WithHelp("i", "rename"),
+	),
 	Archive: key.NewBinding(
 		key.WithKeys("a"),
 		key.WithHelp("a", "archive"),
 	),
+	Unarchive: key.NewBinding(
+		key.WithKeys("u"),
+		key.WithHelp("u", "unarchive"),
+	),
 	Delete: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "delete"),
+	),
+	Visual: key.NewBinding(
+		key.WithKeys("v"),
+		key.WithHelp("v", "visual select"),
+	),
+	Cut: key.NewBinding(
+		key.WithKeys("x"),
+		key.WithHelp("x", "cut"),
+	),
+	Paste: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "paste"),
 	),
 	SmartCatalog: key.NewBinding(
 		key.WithKeys("c"),
@@ -121,6 +147,18 @@ type BrowserModel struct {
 	searchIndex   int                        // current match index
 	searchScorer  *SearchScorer              // fuzzy search scorer
 
+	// Rename mode
+	renameMode  bool
+	renameInput textinput.Model
+	renameNode  *application.TreeNode
+
+	// Visual selection + cut/paste
+	visualMode    bool
+	visualAnchor  int
+	selectedNodes map[int]bool
+	cutNodes      []*application.TreeNode
+	cutMode       bool
+
 	// Smart search (Claude-powered)
 	smartSearchEnabled bool
 
@@ -135,10 +173,16 @@ func NewBrowserModel(repo ports.VaultRepository) *BrowserModel {
 	input.Placeholder = ""
 	input.Prompt = "/"
 
+	renameInput := textinput.New()
+	renameInput.Placeholder = ""
+	renameInput.Prompt = "Rename: "
+
 	return &BrowserModel{
-		repo:         repo,
-		searchInput:  input,
-		searchScorer: NewSearchScorer(),
+		repo:          repo,
+		searchInput:   input,
+		searchScorer:  NewSearchScorer(),
+		renameInput:   renameInput,
+		selectedNodes: make(map[int]bool),
 	}
 }
 
@@ -224,14 +268,37 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSearchMode(msg)
 		}
 
+		// Rename mode handling
+		if m.renameMode {
+			return m.updateRenameMode(msg)
+		}
+
 		switch {
 		case key.Matches(msg, BrowserKeys.Quit):
+			// Layered escape: clear cut first, then visual, then quit
+			if msg.String() == "esc" || msg.String() == "q" {
+				if m.cutMode {
+					m.cutMode = false
+					m.cutNodes = nil
+					m.Message = "Cut cancelled"
+					m.MessageErr = false
+					return m, nil
+				}
+				if m.visualMode {
+					m.visualMode = false
+					m.selectedNodes = make(map[int]bool)
+					return m, nil
+				}
+			}
 			return m, tea.Quit
 
 		case key.Matches(msg, BrowserKeys.Up):
 			if m.cursor > 0 {
 				m.cursor--
 				m.ensureCursorVisible()
+				if m.visualMode {
+					m.updateVisualSelection()
+				}
 			}
 			return m, nil
 
@@ -239,6 +306,9 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(m.flatNodes)-1 {
 				m.cursor++
 				m.ensureCursorVisible()
+				if m.visualMode {
+					m.updateVisualSelection()
+				}
 			}
 			return m, nil
 
@@ -324,6 +394,21 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, BrowserKeys.Archive):
 			return m.handleArchive()
+
+		case key.Matches(msg, BrowserKeys.Rename):
+			return m.handleRename()
+
+		case key.Matches(msg, BrowserKeys.Unarchive):
+			return m.handleUnarchive()
+
+		case key.Matches(msg, BrowserKeys.Visual):
+			return m.handleVisualToggle()
+
+		case key.Matches(msg, BrowserKeys.Cut):
+			return m.handleCut()
+
+		case key.Matches(msg, BrowserKeys.Paste):
+			return m.handlePaste()
 
 		case key.Matches(msg, BrowserKeys.Delete):
 			// Return command to switch to delete view
@@ -762,6 +847,16 @@ func (m *BrowserModel) View() string {
 		} else if len(m.searchInput.Value()) >= 2 {
 			b.WriteString(styles.ErrorMsg.Render(" [no match]"))
 		}
+	} else if m.renameMode {
+		// Rename input shown inline in the tree
+		b.WriteString("\n")
+		b.WriteString(styles.HelpDesc.Render("Enter to confirm, Esc to cancel"))
+	} else if m.visualMode {
+		b.WriteString("\n")
+		count := len(m.selectedNodes)
+		b.WriteString(styles.HelpKey.Render(fmt.Sprintf("-- VISUAL (%d selected) --", count)))
+		b.WriteString(" ")
+		b.WriteString(styles.HelpDesc.Render("x to cut, Esc to cancel"))
 	} else {
 		// Help line
 		b.WriteString("\n")
@@ -774,6 +869,11 @@ func (m *BrowserModel) View() string {
 func (m *BrowserModel) renderNode(node *application.TreeNode, selected bool) string {
 	depth := node.Depth()
 	indent := strings.Repeat("  ", depth)
+
+	// Rename mode: show text input instead of node text
+	if m.renameMode && m.renameNode == node {
+		return fmt.Sprintf("%s%s", indent, m.renameInput.View())
+	}
 
 	// Prefix (expand indicator)
 	var prefix string
@@ -793,18 +893,35 @@ func (m *BrowserModel) renderNode(node *application.TreeNode, selected bool) str
 		text = fmt.Sprintf("%s %s", node.ID, node.Name) // "ID Description"
 	}
 
-	// Map application IDType to styles NodeType
-	nodeType := mapToNodeType(node)
-
-	// Get style from NodeStyler
-	style := styles.DefaultNodeStyler.GetStyle(nodeType, node.ID)
-	styledText := style.Render(text)
-
-	if selected {
+	// Determine style based on state
+	var styledText string
+	switch {
+	case selected:
 		styledText = styles.NodeSelected.Render(text)
+	case m.isNodeCut(node):
+		styledText = styles.NodeCut.Render(text)
+	case m.isNodeVisualSelected(node):
+		styledText = styles.NodeVisualSelected.Render(text)
+	default:
+		nodeType := mapToNodeType(node)
+		style := styles.DefaultNodeStyler.GetStyle(nodeType, node.ID)
+		styledText = style.Render(text)
 	}
 
 	return fmt.Sprintf("%s%s%s", indent, styles.TreeBranch.Render(prefix), styledText)
+}
+
+// isNodeVisualSelected checks if a node is in the visual selection
+func (m *BrowserModel) isNodeVisualSelected(node *application.TreeNode) bool {
+	if !m.visualMode && len(m.selectedNodes) == 0 {
+		return false
+	}
+	for i, n := range m.flatNodes {
+		if n == node && m.selectedNodes[i] {
+			return true
+		}
+	}
+	return false
 }
 
 // mapToNodeType converts application.IDType to styles.NodeType
@@ -828,11 +945,274 @@ func mapToNodeType(node *application.TreeNode) styles.NodeType {
 	}
 }
 
+// handleRename enters inline rename mode for the selected node
+func (m *BrowserModel) handleRename() (tea.Model, tea.Cmd) {
+	node := m.selectedNode()
+	if node == nil {
+		return m, nil
+	}
+
+	eligibility := commands.CheckRenameEligibility(node.Type)
+	if !eligibility.CanRename {
+		m.Message = eligibility.Reason
+		m.MessageErr = true
+		return m, nil
+	}
+
+	m.renameMode = true
+	m.renameNode = node
+	m.renameInput.SetValue(node.Name)
+	m.renameInput.Focus()
+	m.renameInput.CursorEnd()
+	return m, textinput.Blink
+}
+
+// updateRenameMode handles key events in rename mode
+func (m *BrowserModel) updateRenameMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.renameMode = false
+		m.renameNode = nil
+		return m, nil
+
+	case tea.KeyEnter:
+		newDescription := strings.TrimSpace(m.renameInput.Value())
+		node := m.renameNode
+		m.renameMode = false
+		m.renameNode = nil
+
+		if newDescription == "" || newDescription == node.Name {
+			return m, nil
+		}
+
+		return m, func() tea.Msg {
+			cmd := commands.NewRenameCommand(m.repo, node.ID, newDescription)
+			result, err := cmd.Execute(context.Background())
+			if err != nil {
+				return errMsg{err}
+			}
+			return successMsg{result.Message}
+		}
+	}
+
+	var cmd tea.Cmd
+	m.renameInput, cmd = m.renameInput.Update(msg)
+	return m, cmd
+}
+
+// handleVisualToggle toggles visual selection mode
+func (m *BrowserModel) handleVisualToggle() (tea.Model, tea.Cmd) {
+	if m.visualMode {
+		m.visualMode = false
+		m.selectedNodes = make(map[int]bool)
+		return m, nil
+	}
+
+	m.visualMode = true
+	m.visualAnchor = m.cursor
+	m.selectedNodes = make(map[int]bool)
+	m.selectedNodes[m.cursor] = true
+	return m, nil
+}
+
+// updateVisualSelection updates the selection range based on anchor and cursor
+func (m *BrowserModel) updateVisualSelection() {
+	m.selectedNodes = make(map[int]bool)
+	start, end := m.visualAnchor, m.cursor
+	if start > end {
+		start, end = end, start
+	}
+	for i := start; i <= end; i++ {
+		m.selectedNodes[i] = true
+	}
+}
+
+// handleCut cuts the selected/visual nodes
+func (m *BrowserModel) handleCut() (tea.Model, tea.Cmd) {
+	var nodesToCut []*application.TreeNode
+
+	if m.visualMode || len(m.selectedNodes) > 0 {
+		// Cut all selected nodes
+		for i, node := range m.flatNodes {
+			if m.selectedNodes[i] {
+				nodesToCut = append(nodesToCut, node)
+			}
+		}
+	} else if node := m.selectedNode(); node != nil {
+		// Cut single node under cursor
+		nodesToCut = []*application.TreeNode{node}
+	}
+
+	if len(nodesToCut) == 0 {
+		return m, nil
+	}
+
+	// Validate: only items and categories can be cut
+	for _, node := range nodesToCut {
+		if node.Type != application.IDTypeItem && node.Type != application.IDTypeCategory {
+			m.Message = fmt.Sprintf("Cannot cut %s (only items and categories)", node.Type)
+			m.MessageErr = true
+			return m, nil
+		}
+	}
+
+	// Validate: don't mix types
+	firstType := nodesToCut[0].Type
+	for _, node := range nodesToCut[1:] {
+		if node.Type != firstType {
+			m.Message = "Cannot cut mixed types (items and categories)"
+			m.MessageErr = true
+			return m, nil
+		}
+	}
+
+	m.cutNodes = nodesToCut
+	m.cutMode = true
+	m.visualMode = false
+	m.selectedNodes = make(map[int]bool)
+
+	typeStr := "items"
+	if firstType == application.IDTypeCategory {
+		typeStr = "categories"
+	}
+	m.Message = fmt.Sprintf("Cut %d %s — navigate to destination and press p to paste", len(nodesToCut), typeStr)
+	m.MessageErr = false
+	return m, nil
+}
+
+// handlePaste pastes cut nodes to the destination under cursor
+func (m *BrowserModel) handlePaste() (tea.Model, tea.Cmd) {
+	if !m.cutMode || len(m.cutNodes) == 0 {
+		m.Message = "Nothing to paste — cut items first with x"
+		m.MessageErr = true
+		return m, nil
+	}
+
+	destNode := m.selectedNode()
+	if destNode == nil {
+		return m, nil
+	}
+
+	// Determine destination ID based on cursor position and cut type
+	cutType := m.cutNodes[0].Type
+	var destID string
+
+	switch cutType {
+	case application.IDTypeItem:
+		// Items paste to categories
+		switch destNode.Type {
+		case application.IDTypeCategory:
+			destID = destNode.ID
+		case application.IDTypeItem:
+			// If cursor is on an item, use its parent category
+			categoryID, err := application.ParseCategory(destNode.ID)
+			if err == nil {
+				destID = categoryID
+			}
+		}
+		if destID == "" {
+			m.Message = "Move cursor to a category to paste items"
+			m.MessageErr = true
+			return m, nil
+		}
+	case application.IDTypeCategory:
+		// Categories paste to areas
+		switch destNode.Type {
+		case application.IDTypeArea:
+			destID = destNode.ID
+		case application.IDTypeCategory:
+			// If cursor is on a category, use its parent area
+			areaID, err := application.ParseArea(destNode.ID)
+			if err == nil {
+				destID = areaID
+			}
+		}
+		if destID == "" {
+			m.Message = "Move cursor to an area to paste categories"
+			m.MessageErr = true
+			return m, nil
+		}
+	}
+
+	cutNodes := m.cutNodes
+	m.cutMode = false
+	m.cutNodes = nil
+
+	return m, func() tea.Msg {
+		var lastErr error
+		moved := 0
+		for _, node := range cutNodes {
+			var err error
+			switch node.Type {
+			case application.IDTypeItem:
+				cmd := commands.NewMoveItemCommand(m.repo, node.ID, destID)
+				_, err = cmd.Execute(context.Background())
+			case application.IDTypeCategory:
+				cmd := commands.NewMoveCategoryCommand(m.repo, node.ID, destID)
+				_, err = cmd.Execute(context.Background())
+			}
+			if err != nil {
+				lastErr = err
+			} else {
+				moved++
+			}
+		}
+		if lastErr != nil && moved == 0 {
+			return errMsg{lastErr}
+		}
+		return successMsg{fmt.Sprintf("Moved %d/%d to %s", moved, len(cutNodes), destID)}
+	}
+}
+
+// handleUnarchive handles the u key to unarchive items
+func (m *BrowserModel) handleUnarchive() (tea.Model, tea.Cmd) {
+	node := m.selectedNode()
+	if node == nil {
+		return m, nil
+	}
+
+	// Only items can be unarchived via u key
+	if node.Type != application.IDTypeItem {
+		m.Message = "Unarchive only works on items"
+		m.MessageErr = true
+		return m, nil
+	}
+
+	// Check if this is an archive item (.09)
+	if !domain.IsArchiveItem(node.ID) {
+		m.Message = "This item is not in an archive folder"
+		m.MessageErr = true
+		return m, nil
+	}
+
+	// Switch to unarchive view
+	return m, func() tea.Msg {
+		return SwitchToUnarchiveMsg{TargetNode: node}
+	}
+}
+
+// isNodeCut checks if a node is in the cut buffer
+func (m *BrowserModel) isNodeCut(node *application.TreeNode) bool {
+	if !m.cutMode {
+		return false
+	}
+	for _, cn := range m.cutNodes {
+		if cn.ID == node.ID && cn.Path == node.Path {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *BrowserModel) renderHelpLine() string {
 	node := m.selectedNode()
 
 	// Context-specific bindings based on node type
 	var bindings []key.Binding
+
+	if m.cutMode {
+		bindings = append(bindings, BrowserKeys.Paste)
+	}
 
 	if node != nil {
 		// Check smart catalog eligibility (only inbox items)
@@ -842,6 +1222,9 @@ func (m *BrowserModel) renderHelpLine() string {
 		case application.IDTypeItem:
 			if canCatalog {
 				bindings = append(bindings, BrowserKeys.SmartCatalog)
+			}
+			if domain.IsArchiveItem(node.ID) {
+				bindings = append(bindings, BrowserKeys.Unarchive)
 			}
 		case application.IDTypeCategory:
 			bindings = append(bindings,
@@ -856,6 +1239,15 @@ func (m *BrowserModel) renderHelpLine() string {
 				key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new area")),
 			)
 		}
+
+		// Rename for items, categories, areas
+		eligibility := commands.CheckRenameEligibility(node.Type)
+		if eligibility.CanRename {
+			bindings = append(bindings, BrowserKeys.Rename)
+		}
+
+		// Visual mode
+		bindings = append(bindings, BrowserKeys.Visual)
 	}
 
 	// Always show search and help
@@ -950,6 +1342,11 @@ type OpenObsidianMsg struct {
 	Path string
 }
 
+// SwitchToUnarchiveMsg requests switching to unarchive view
+type SwitchToUnarchiveMsg struct {
+	TargetNode *application.TreeNode
+}
+
 // SwitchToSmartSearchMsg requests switching to smart search view
 type SwitchToSmartSearchMsg struct {
 	VaultStructure string
@@ -1027,7 +1424,7 @@ func formatNodeForSearch(sb *strings.Builder, node *application.TreeNode, depth 
 	// Skip root node
 	if depth > 0 {
 		indent := strings.Repeat("  ", depth-1)
-		sb.WriteString(fmt.Sprintf("%s%s %s\n", indent, node.ID, node.Name))
+		fmt.Fprintf(sb, "%s%s %s\n", indent, node.ID, node.Name)
 	}
 
 	// Recursively format children (need to load them first)

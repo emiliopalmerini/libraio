@@ -376,8 +376,16 @@ func (m *mockVaultRepository) MoveCategory(string, string) (*domain.Category, er
 }
 func (m *mockVaultRepository) ArchiveItem(string) (*domain.Item, error)       { return nil, nil }
 func (m *mockVaultRepository) ArchiveCategory(string) ([]*domain.Item, error) { return nil, nil }
-func (m *mockVaultRepository) Delete(string) error                            { return nil }
-func (m *mockVaultRepository) VaultPath() string                              { return "/mock/vault" }
+func (m *mockVaultRepository) UnarchiveItems(string, string) ([]*domain.Item, error) {
+	return nil, nil
+}
+func (m *mockVaultRepository) RenameItem(string, string) (*domain.Item, error) { return nil, nil }
+func (m *mockVaultRepository) RenameCategory(string, string) (*domain.Category, error) {
+	return nil, nil
+}
+func (m *mockVaultRepository) RenameArea(string, string) (*domain.Area, error) { return nil, nil }
+func (m *mockVaultRepository) Delete(string) error                             { return nil }
+func (m *mockVaultRepository) VaultPath() string                               { return "/mock/vault" }
 
 type mockAIAssistant struct {
 	suggestions []ports.CatalogSuggestion

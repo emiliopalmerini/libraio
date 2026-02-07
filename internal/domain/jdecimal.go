@@ -425,6 +425,20 @@ func FormatFolderName(id, description string) string {
 	return fmt.Sprintf("%s %s", id, description)
 }
 
+// IsArchivedFolder checks if a folder name has the [Archived] prefix
+func IsArchivedFolder(name string) bool {
+	return strings.HasPrefix(name, "[Archived] ")
+}
+
+// ExtractArchivedDescription extracts the description from an archived folder name
+// e.g., "[Archived] Theatre" -> "Theatre"
+func ExtractArchivedDescription(name string) string {
+	if !IsArchivedFolder(name) {
+		return ""
+	}
+	return strings.TrimPrefix(name, "[Archived] ")
+}
+
 // GetIDHierarchy returns the full hierarchy of IDs leading to the given ID.
 // For example, "S01.11.15" returns ["S01", "S01.10-19", "S01.11", "S01.11.15"]
 func GetIDHierarchy(id string) []string {

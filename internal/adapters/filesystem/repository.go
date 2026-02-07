@@ -104,64 +104,58 @@ func updateJDexFile(dstPath, oldFolderName, newJDexPath string, transform func(s
 	return nil
 }
 
-// nextAvailableItemID returns the next available item ID in a category
-func (r *Repository) nextAvailableItemID(categoryID string) (string, error) {
-	existing, err := r.ListItems(categoryID)
+// nextAvailableID is a generic helper that:
+// 1. Lists existing entities using the lister function
+// 2. Extracts IDs from those entities
+// 3. Calls the domain nextIDFunc to calculate the next available ID
+// This eliminates duplication across nextAvailableItemID, nextAvailableCategoryID, etc.
+func nextAvailableID[T domain.IDGetter](
+	lister func() ([]T, error),
+	nextIDFunc func([]string) (string, error),
+) (string, error) {
+	existing, err := lister()
 	if err != nil {
 		return "", err
 	}
 
-	var existingIDs []string
-	for _, item := range existing {
-		existingIDs = append(existingIDs, item.ID)
+	existingIDs := make([]string, len(existing))
+	for i, entity := range existing {
+		existingIDs[i] = entity.GetID()
 	}
 
-	return domain.NextItemID(categoryID, existingIDs)
+	return nextIDFunc(existingIDs)
+}
+
+// nextAvailableItemID returns the next available item ID in a category
+func (r *Repository) nextAvailableItemID(categoryID string) (string, error) {
+	return nextAvailableID(
+		func() ([]domain.Item, error) { return r.ListItems(categoryID) },
+		func(existingIDs []string) (string, error) { return domain.NextItemID(categoryID, existingIDs) },
+	)
 }
 
 // nextAvailableCategoryID returns the next available category ID in an area
 func (r *Repository) nextAvailableCategoryID(areaID string) (string, error) {
-	existing, err := r.ListCategories(areaID)
-	if err != nil {
-		return "", err
-	}
-
-	var existingIDs []string
-	for _, cat := range existing {
-		existingIDs = append(existingIDs, cat.ID)
-	}
-
-	return domain.NextCategoryID(areaID, existingIDs)
+	return nextAvailableID(
+		func() ([]domain.Category, error) { return r.ListCategories(areaID) },
+		func(existingIDs []string) (string, error) { return domain.NextCategoryID(areaID, existingIDs) },
+	)
 }
 
 // nextAvailableScopeID returns the next available scope ID
 func (r *Repository) nextAvailableScopeID() (string, error) {
-	existing, err := r.ListScopes()
-	if err != nil {
-		return "", err
-	}
-
-	var existingIDs []string
-	for _, scope := range existing {
-		existingIDs = append(existingIDs, scope.ID)
-	}
-
-	return domain.NextScopeID(existingIDs)
+	return nextAvailableID(
+		func() ([]domain.Scope, error) { return r.ListScopes() },
+		domain.NextScopeID,
+	)
 }
 
 // nextAvailableAreaID returns the next available area ID in a scope
 func (r *Repository) nextAvailableAreaID(scopeID string) (string, error) {
-	existing, err := r.ListAreas(scopeID)
-	if err != nil {
-		return "", err
-	}
-
-	var existingIDs []string
-	for _, area := range existing {
-		existingIDs = append(existingIDs, area.ID)
-	}
-
-	return domain.NextAreaID(scopeID, existingIDs)
+	return nextAvailableID(
+		func() ([]domain.Area, error) { return r.ListAreas(scopeID) },
+		func(existingIDs []string) (string, error) { return domain.NextAreaID(scopeID, existingIDs) },
+	)
 }
 
 // NewRepository creates a new filesystem repository

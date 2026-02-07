@@ -1,6 +1,9 @@
 package domain
 
-import "slices"
+import (
+	"cmp"
+	"slices"
+)
 
 // Scope represents a top-level scope in the vault (S00, S01, S02, S03)
 type Scope struct {
@@ -101,54 +104,52 @@ func (n *TreeNode) Collapse() {
 	n.IsExpanded = false
 }
 
-// SortScopes sorts scopes by ID in ascending order
-func SortScopes(scopes []Scope) {
-	slices.SortFunc(scopes, func(a, b Scope) int {
-		if a.ID < b.ID {
-			return -1
-		}
-		if a.ID > b.ID {
-			return 1
-		}
-		return 0
+// IDGetter defines the interface for entities that have an ID
+type IDGetter interface {
+	GetID() string
+}
+
+// GetID returns the ID of a Scope
+func (s Scope) GetID() string { return s.ID }
+
+// GetID returns the ID of an Area
+func (a Area) GetID() string { return a.ID }
+
+// GetID returns the ID of a Category
+func (c Category) GetID() string { return c.ID }
+
+// GetID returns the ID of an Item
+func (i Item) GetID() string { return i.ID }
+
+// SortByID sorts any slice of entities by their ID in ascending order.
+// This generic function replaces the need for separate SortScopes, SortAreas,
+// SortCategories, and SortItems functions.
+func SortByID[T IDGetter](entities []T) {
+	slices.SortFunc(entities, func(a, b T) int {
+		return cmp.Compare(a.GetID(), b.GetID())
 	})
+}
+
+// SortScopes sorts scopes by ID in ascending order
+// Deprecated: Use SortByID[Scope](scopes) instead
+func SortScopes(scopes []Scope) {
+	SortByID(scopes)
 }
 
 // SortAreas sorts areas by ID in ascending order
+// Deprecated: Use SortByID[Area](areas) instead
 func SortAreas(areas []Area) {
-	slices.SortFunc(areas, func(a, b Area) int {
-		if a.ID < b.ID {
-			return -1
-		}
-		if a.ID > b.ID {
-			return 1
-		}
-		return 0
-	})
+	SortByID(areas)
 }
 
 // SortCategories sorts categories by ID in ascending order
+// Deprecated: Use SortByID[Category](categories) instead
 func SortCategories(categories []Category) {
-	slices.SortFunc(categories, func(a, b Category) int {
-		if a.ID < b.ID {
-			return -1
-		}
-		if a.ID > b.ID {
-			return 1
-		}
-		return 0
-	})
+	SortByID(categories)
 }
 
 // SortItems sorts items by ID in ascending order
+// Deprecated: Use SortByID[Item](items) instead
 func SortItems(items []Item) {
-	slices.SortFunc(items, func(a, b Item) int {
-		if a.ID < b.ID {
-			return -1
-		}
-		if a.ID > b.ID {
-			return 1
-		}
-		return 0
-	})
+	SortByID(items)
 }

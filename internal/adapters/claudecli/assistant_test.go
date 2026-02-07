@@ -2,6 +2,8 @@ package claudecli
 
 import (
 	"testing"
+
+	"libraio/internal/ports"
 )
 
 func TestParseBatchSuggestions(t *testing.T) {
@@ -112,44 +114,133 @@ func TestParseBatchSuggestions(t *testing.T) {
 }
 
 func TestBuildBatchPrompt(t *testing.T) {
-	files := []struct {
-		name    string
-		content string
-	}{
-		{"document.pdf", "PDF content here"},
-		{"binary.exe", ""},
+	files := []ports.FileInfo{
+		{Name: "document.pdf", Content: "PDF content here"},
+		{Name: "binary.exe", Content: ""},
 	}
-
-	var fileInfos []struct {
-		Name    string
-		Path    string
-		Content string
-	}
-	for _, f := range files {
-		fileInfos = append(fileInfos, struct {
-			Name    string
-			Path    string
-			Content string
-		}{
-			Name:    f.name,
-			Content: f.content,
-		})
-	}
-
-	// Convert to the expected type for buildBatchPrompt
-	// We need to use ports.FileInfo but can't import it in tests easily,
-	// so we test the format indirectly
 
 	vaultStructure := "S01.11.15 Theatre\nS01.21.11 Learning"
+	prompt := buildBatchPrompt(files, vaultStructure)
 
-	// Test that the function produces output (not detailed content test)
-	// The actual buildBatchPrompt takes []ports.FileInfo which we can't construct here
-	// This is more of a smoke test
-	if len(vaultStructure) == 0 {
-		t.Error("vault structure should not be empty")
+	if !contains(prompt, "document.pdf") {
+		t.Error("prompt should contain file name")
+	}
+	if !contains(prompt, "PDF content here") {
+		t.Error("prompt should contain file content")
+	}
+	if !contains(prompt, "(Binary file") {
+		t.Error("prompt should indicate binary file for empty content")
+	}
+	if !contains(prompt, vaultStructure) {
+		t.Error("prompt should contain vault structure")
 	}
 }
 
 func contains(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || contains(s[1:], substr)))
+}
+
+func TestNewAssistant_DefaultModels(t *testing.T) {
+	a := NewAssistant()
+	if a.model != "haiku" {
+		t.Errorf("default model = %q, want %q", a.model, "haiku")
+	}
+	if a.searchModel != "sonnet" {
+		t.Errorf("default searchModel = %q, want %q", a.searchModel, "sonnet")
+	}
+}
+
+func TestWithModel_DoesNotAffectSearchModel(t *testing.T) {
+	a := NewAssistant(WithModel("opus"))
+	if a.model != "opus" {
+		t.Errorf("model = %q, want %q", a.model, "opus")
+	}
+	if a.searchModel != "sonnet" {
+		t.Errorf("searchModel should remain %q, got %q", "sonnet", a.searchModel)
+	}
+}
+
+func TestWithSearchModel(t *testing.T) {
+	a := NewAssistant(WithSearchModel("opus"))
+	if a.searchModel != "opus" {
+		t.Errorf("searchModel = %q, want %q", a.searchModel, "opus")
+	}
+	if a.model != "haiku" {
+		t.Errorf("model should remain %q, got %q", "haiku", a.model)
+	}
+}
+
+func TestBuildSearchPrompt_ContainsKeyPhrases(t *testing.T) {
+	prompt := buildSearchPrompt("movies", "S01.11 Entertainment")
+
+	expectedPhrases := []string{
+		"Johnny Decimal",
+		`"movies"`,
+		"S01.11 Entertainment",
+		"semantic meaning",
+		"synonyms",
+		"Scopes",
+		"Areas",
+		"Categories",
+		"Items",
+		"JSON array",
+	}
+
+	for _, phrase := range expectedPhrases {
+		if !contains(prompt, phrase) {
+			t.Errorf("prompt missing expected phrase %q", phrase)
+		}
+	}
+}
+
+func TestParseSearchResults(t *testing.T) {
+	tests := []struct {
+		name      string
+		result    string
+		wantCount int
+		wantFirst string
+		wantErr   bool
+	}{
+		{
+			name:      "valid results",
+			result:    `[{"path": "S01 Me/S01.10-19 Lifestyle/S01.11 Entertainment", "jdid": "S01.11", "name": "Entertainment", "type": "category", "score": 0.95, "reasoning": "test"}]`,
+			wantCount: 1,
+			wantFirst: "S01.11",
+			wantErr:   false,
+		},
+		{
+			name:      "empty array",
+			result:    `[]`,
+			wantCount: 0,
+			wantErr:   false,
+		},
+		{
+			name:    "no JSON",
+			result:  "no results here",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results, err := parseSearchResults(tt.result)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if len(results) != tt.wantCount {
+				t.Errorf("got %d results, want %d", len(results), tt.wantCount)
+				return
+			}
+			if tt.wantCount > 0 && results[0].JDID != tt.wantFirst {
+				t.Errorf("first JDID = %q, want %q", results[0].JDID, tt.wantFirst)
+			}
+		})
+	}
 }

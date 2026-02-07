@@ -367,6 +367,33 @@ func IsAreaManagementCategory(categoryID string) bool {
 	return parts[1][1] == '0'
 }
 
+// IsStandardZeroItem checks if an item ID is a standard zero (.00-.09)
+// e.g., S01.11.01 -> true, S01.11.11 -> false
+func IsStandardZeroItem(itemID string) bool {
+	if ParseIDType(itemID) != IDTypeItem {
+		return false
+	}
+	num, err := ExtractNumber(itemID)
+	if err != nil {
+		return false
+	}
+	return num <= StandardZeroMax
+}
+
+// IsManagementArea checks if an area ID is a scope-level management area (00-09)
+// e.g., S01.00-09 -> true, S01.10-19 -> false
+func IsManagementArea(areaID string) bool {
+	if ParseIDType(areaID) != IDTypeArea {
+		return false
+	}
+	// Area format: S0X.Y0-Y9 - management area has Y=0
+	parts := strings.Split(areaID, ".")
+	if len(parts) != 2 {
+		return false
+	}
+	return strings.HasPrefix(parts[1], "00-")
+}
+
 // AreaRangeFromCategory returns the area range string for a category
 // e.g., S01.10 -> "10-19", S01.21 -> "20-29"
 func AreaRangeFromCategory(categoryID string) string {

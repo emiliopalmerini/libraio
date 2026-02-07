@@ -12,7 +12,8 @@ import (
 
 // Assistant implements ports.AIAssistant using Claude Code CLI
 type Assistant struct {
-	model string
+	model       string
+	searchModel string
 }
 
 // Option configures the Assistant
@@ -25,10 +26,18 @@ func WithModel(model string) Option {
 	}
 }
 
+// WithSearchModel sets the Claude model used specifically for smart search
+func WithSearchModel(model string) Option {
+	return func(a *Assistant) {
+		a.searchModel = model
+	}
+}
+
 // NewAssistant creates a new Claude CLI assistant
 func NewAssistant(opts ...Option) *Assistant {
 	a := &Assistant{
-		model: "haiku", // Default to haiku for speed
+		model:       "haiku",  // Default to haiku for catalog suggestions
+		searchModel: "sonnet", // Default to sonnet for smart search
 	}
 	for _, opt := range opts {
 		opt(a)
@@ -198,7 +207,7 @@ func (a *Assistant) SmartSearch(query string, vaultStructure string) ([]ports.Sm
 	args := []string{
 		"-p", prompt,
 		"--output-format", "json",
-		"--model", a.model,
+		"--model", a.searchModel,
 	}
 
 	cmd := exec.Command("claude", args...)
@@ -224,24 +233,33 @@ func (a *Assistant) SmartSearch(query string, vaultStructure string) ([]ports.Sm
 }
 
 func buildSearchPrompt(query, vaultStructure string) string {
-	return fmt.Sprintf(`You are searching a personal knowledge vault organized with Johnny Decimal.
+	return fmt.Sprintf(`You are searching a personal knowledge vault organized with the Johnny Decimal system.
 
-User's query: "%s"
+## Johnny Decimal Structure
+- **Scopes** (S01, S02): Top-level life areas
+- **Areas** (S01.10-19): Groups of related categories within a scope
+- **Categories** (S01.11): Specific topics within an area
+- **Items** (S01.11.15): Individual entries within a category, may include a description after " — "
 
-Vault structure:
+## User Query
+"%s"
+
+## Vault Contents
 %s
 
-Find the most relevant items/categories/areas for this query. Consider:
-- The user might describe content differently than it's named
-- Johnny Decimal IDs indicate categories (e.g., S01.11 = Entertainment, S01.21 = Programming)
-- Match semantic meaning, not just keywords
+## Instructions
+Find the most relevant items, categories, or areas for the query above.
 
-Return ONLY a JSON array of up to 10 results, ranked by relevance (no markdown, no code blocks):
-[
-  {"path": "S01 Me/S01.10-19 Lifestyle/S01.11 Entertainment", "jdid": "S01.11", "name": "Entertainment", "type": "category", "score": 0.95, "reasoning": "Contains movies, theatre, media content"}
-]
+- Prioritize content items over structural/organizational nodes
+- Match semantic meaning, synonyms, and related topics — not just keywords
+- Consider that the user may describe content differently than it's named (e.g., "movies" could match "Cinema" or "Entertainment")
+- Item descriptions (after " — ") provide additional context about what an item contains
+- Score results from 0.0 to 1.0 based on semantic relevance
 
-If nothing matches well, return an empty array [].`, query, vaultStructure)
+Return ONLY a JSON array of up to 10 results ranked by relevance (no markdown, no code blocks, no explanation):
+[{"path": "S01 Me/S01.10-19 Lifestyle/S01.11 Entertainment", "jdid": "S01.11", "name": "Entertainment", "type": "category", "score": 0.95, "reasoning": "Brief explanation"}]
+
+If nothing matches well, return [].`, query, vaultStructure)
 }
 
 // parseSearchResults extracts the search results JSON array from Claude's response

@@ -339,6 +339,58 @@ func TestManagementCategoryID(t *testing.T) {
 	}
 }
 
+func TestIsStandardZeroItem(t *testing.T) {
+	tests := []struct {
+		itemID string
+		want   bool
+	}{
+		{"S01.11.00", true},  // JDex
+		{"S01.11.01", true},  // Inbox
+		{"S01.11.02", true},  // Tasks
+		{"S01.11.09", true},  // Archive
+		{"S01.11.10", false}, // Buffer (not standard zero)
+		{"S01.11.11", false}, // Regular item
+		{"S01.11.99", false}, // Regular item
+		{"S01.11", false},    // Category, not item
+		{"S01", false},       // Scope
+		{"S01.10-19", false}, // Area
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.itemID, func(t *testing.T) {
+			got := IsStandardZeroItem(tt.itemID)
+			if got != tt.want {
+				t.Errorf("IsStandardZeroItem(%q) = %v, want %v", tt.itemID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsManagementArea(t *testing.T) {
+	tests := []struct {
+		areaID string
+		want   bool
+	}{
+		{"S01.00-09", true},  // Scope management area
+		{"S02.00-09", true},  // Different scope management area
+		{"S01.10-19", false}, // Regular area
+		{"S01.20-29", false}, // Regular area
+		{"S01.90-99", false}, // Regular area
+		{"S01", false},       // Scope, not area
+		{"S01.11", false},    // Category, not area
+		{"S01.11.11", false}, // Item, not area
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.areaID, func(t *testing.T) {
+			got := IsManagementArea(tt.areaID)
+			if got != tt.want {
+				t.Errorf("IsManagementArea(%q) = %v, want %v", tt.areaID, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestJDexFileName(t *testing.T) {
 	tests := []struct {
 		folderName string

@@ -1421,14 +1421,78 @@ func FormatTreeForSearch(root *application.TreeNode) string {
 }
 
 func formatNodeForSearch(sb *strings.Builder, node *application.TreeNode, depth int) {
-	// Skip root node
+	// Skip management areas, management categories, and standard zero items
 	if depth > 0 {
+		if domain.IsManagementArea(node.ID) ||
+			domain.IsAreaManagementCategory(node.ID) ||
+			domain.IsStandardZeroItem(node.ID) {
+			return
+		}
+
 		indent := strings.Repeat("  ", depth-1)
-		fmt.Fprintf(sb, "%s%s %s\n", indent, node.ID, node.Name)
+		line := fmt.Sprintf("%s%s %s", indent, node.ID, node.Name)
+
+		// Append JDex description for item nodes
+		if node.Type == domain.IDTypeItem {
+			if desc := readJDexDescription(node.Path); desc != "" {
+				line += " — " + desc
+			}
+		}
+
+		sb.WriteString(line + "\n")
 	}
 
-	// Recursively format children (need to load them first)
+	// Recursively format children
 	for _, child := range node.Children {
 		formatNodeForSearch(sb, child, depth+1)
 	}
+}
+
+// readJDexDescription reads the first content line from a JDex file in the given folder.
+// It skips YAML frontmatter (between --- delimiters) and # headers.
+// Returns empty string if no description is found or the file doesn't exist.
+func readJDexDescription(folderPath string) string {
+	folderName := filepath.Base(folderPath)
+	jdexPath := filepath.Join(folderPath, domain.JDexFileName(folderName))
+
+	data, err := os.ReadFile(jdexPath)
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(string(data), "\n")
+	inFrontmatter := false
+	frontmatterSeen := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Handle YAML frontmatter
+		if trimmed == "---" {
+			if !frontmatterSeen {
+				inFrontmatter = true
+				frontmatterSeen = true
+				continue
+			}
+			inFrontmatter = false
+			continue
+		}
+
+		if inFrontmatter {
+			continue
+		}
+
+		// Skip empty lines and headers
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Found first content line — truncate if needed
+		if len(trimmed) > 100 {
+			return trimmed[:100]
+		}
+		return trimmed
+	}
+
+	return ""
 }

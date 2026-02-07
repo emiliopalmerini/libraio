@@ -34,6 +34,39 @@ type LinkReplacement struct {
 	IsRegex bool   // If true, Old is treated as a regex pattern
 }
 
+// listEntities is a generic helper that lists entities from a directory.
+// It reads the directory, filters by regex, maps matches to domain objects, and sorts.
+// This eliminates duplication across ListScopes, ListAreas, ListCategories, and ListItems.
+func listEntities[T domain.IDGetter](
+	dirPath string,
+	folderRegex *regexp.Regexp,
+	mapper func(matches []string, entryName string, fullPath string) T,
+) ([]T, error) {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory %s: %w", dirPath, err)
+	}
+
+	var entities []T
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		matches := folderRegex.FindStringSubmatch(entry.Name())
+		if matches == nil {
+			continue
+		}
+
+		fullPath := filepath.Join(dirPath, entry.Name())
+		entity := mapper(matches, entry.Name(), fullPath)
+		entities = append(entities, entity)
+	}
+
+	domain.SortByID(entities)
+	return entities, nil
+}
+
 // updateJDexFile finds and updates a JDex file (or legacy README.md) in the given directory.
 // It looks for the old JDex file or README.md, applies the transform function, writes to newJDexPath,
 // and removes the old file if different from the new path.
@@ -152,33 +185,17 @@ func (r *Repository) VaultPath() string {
 
 // ListScopes returns all scopes in the vault
 func (r *Repository) ListScopes() ([]domain.Scope, error) {
-	entries, err := os.ReadDir(r.vaultPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read vault: %w", err)
-	}
-
-	var scopes []domain.Scope
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		matches := domain.ScopeFolderRegex.FindStringSubmatch(entry.Name())
-		if matches == nil {
-			continue
-		}
-
-		scopes = append(scopes, domain.Scope{
-			ID:   matches[1],
-			Name: matches[2],
-			Path: filepath.Join(r.vaultPath, entry.Name()),
-		})
-	}
-
-	domain.SortScopes(scopes)
-
-	return scopes, nil
+	return listEntities(
+		r.vaultPath,
+		domain.ScopeFolderRegex,
+		func(matches []string, entryName string, fullPath string) domain.Scope {
+			return domain.Scope{
+				ID:   matches[1],
+				Name: matches[2],
+				Path: fullPath,
+			}
+		},
+	)
 }
 
 // ListAreas returns all areas within a scope
@@ -188,34 +205,18 @@ func (r *Repository) ListAreas(scopeID string) ([]domain.Area, error) {
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(scopePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read scope: %w", err)
-	}
-
-	var areas []domain.Area
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		matches := domain.AreaFolderRegex.FindStringSubmatch(entry.Name())
-		if matches == nil {
-			continue
-		}
-
-		areas = append(areas, domain.Area{
-			ID:      matches[1],
-			Name:    matches[2],
-			Path:    filepath.Join(scopePath, entry.Name()),
-			ScopeID: scopeID,
-		})
-	}
-
-	domain.SortAreas(areas)
-
-	return areas, nil
+	return listEntities(
+		scopePath,
+		domain.AreaFolderRegex,
+		func(matches []string, entryName string, fullPath string) domain.Area {
+			return domain.Area{
+				ID:      matches[1],
+				Name:    matches[2],
+				Path:    fullPath,
+				ScopeID: scopeID,
+			}
+		},
+	)
 }
 
 // ListCategories returns all categories within an area
@@ -225,34 +226,18 @@ func (r *Repository) ListCategories(areaID string) ([]domain.Category, error) {
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(areaPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read area: %w", err)
-	}
-
-	var categories []domain.Category
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		matches := domain.CategoryFolderRegex.FindStringSubmatch(entry.Name())
-		if matches == nil {
-			continue
-		}
-
-		categories = append(categories, domain.Category{
-			ID:     matches[1],
-			Name:   matches[2],
-			Path:   filepath.Join(areaPath, entry.Name()),
-			AreaID: areaID,
-		})
-	}
-
-	domain.SortCategories(categories)
-
-	return categories, nil
+	return listEntities(
+		areaPath,
+		domain.CategoryFolderRegex,
+		func(matches []string, entryName string, fullPath string) domain.Category {
+			return domain.Category{
+				ID:     matches[1],
+				Name:   matches[2],
+				Path:   fullPath,
+				AreaID: areaID,
+			}
+		},
+	)
 }
 
 // ListItems returns all items within a category
@@ -262,37 +247,19 @@ func (r *Repository) ListItems(categoryID string) ([]domain.Item, error) {
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(categoryPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read category: %w", err)
-	}
-
-	var items []domain.Item
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		matches := domain.ItemFolderRegex.FindStringSubmatch(entry.Name())
-		if matches == nil {
-			continue
-		}
-
-		itemPath := filepath.Join(categoryPath, entry.Name())
-		folderName := entry.Name()
-		items = append(items, domain.Item{
-			ID:         matches[1],
-			Name:       matches[2],
-			Path:       itemPath,
-			CategoryID: categoryID,
-			JDexPath:   filepath.Join(itemPath, domain.JDexFileName(folderName)),
-		})
-	}
-
-	domain.SortItems(items)
-
-	return items, nil
+	return listEntities(
+		categoryPath,
+		domain.ItemFolderRegex,
+		func(matches []string, entryName string, fullPath string) domain.Item {
+			return domain.Item{
+				ID:         matches[1],
+				Name:       matches[2],
+				Path:       fullPath,
+				CategoryID: categoryID,
+				JDexPath:   filepath.Join(fullPath, domain.JDexFileName(entryName)),
+			}
+		},
+	)
 }
 
 // CreateScope creates a new scope in the vault

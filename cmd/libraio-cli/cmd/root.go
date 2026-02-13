@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"libraio/internal/adapters/filesystem"
+	"libraio/internal/config"
 	"libraio/internal/ports"
 )
 
@@ -42,7 +43,7 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&vaultPath, "vault", "v", "~/Documents/bag_of_holding", "path to the vault")
+	rootCmd.PersistentFlags().StringVarP(&vaultPath, "vault", "v", config.VaultPath(), "path to the vault")
 }
 
 // GetRepo returns the initialized repository

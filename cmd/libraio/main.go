@@ -13,11 +13,11 @@ import (
 	"libraio/internal/adapters/obsidian"
 	"libraio/internal/adapters/sqlite"
 	"libraio/internal/adapters/tui"
+	"libraio/internal/config"
 )
 
-const vaultPath = "~/Documents/bag_of_holding"
-
 func main() {
+	vaultPath := config.VaultPath()
 	// Initialize SQLite index for caching
 	index := sqlite.NewIndex()
 	if err := index.Open(vaultPath); err != nil {

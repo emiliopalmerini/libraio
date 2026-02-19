@@ -1,6 +1,6 @@
-.PHONY: all fmt check vet build build-cli build-mcp run test clean install install-cli install-mcp ci help
+.PHONY: all fmt check vet build build-cli run test clean install install-cli ci help
 
-all: fmt vet test build build-cli build-mcp
+all: fmt vet test build build-cli
 
 fmt:
 	go fmt ./...
@@ -21,9 +21,6 @@ build: fmt vet
 build-cli: fmt vet
 	go build -o libraio-cli ./cmd/libraio-cli
 
-build-mcp: fmt vet
-	go build -o libraio-mcp ./cmd/libraio-mcp
-
 run: build
 	./libraio
 
@@ -31,7 +28,7 @@ test:
 	go test -v ./...
 
 clean:
-	rm -f libraio libraio-cli libraio-mcp
+	rm -f libraio libraio-cli
 	go clean ./...
 
 install: build
@@ -41,10 +38,6 @@ install: build
 install-cli: build-cli
 	mkdir -p ~/.local/bin
 	cp libraio-cli ~/.local/bin/
-
-install-mcp: build-mcp
-	mkdir -p ~/.local/bin
-	cp libraio-mcp ~/.local/bin/
 
 ci: check vet build test
 
@@ -56,11 +49,9 @@ help:
 	@echo "  vet         - Run go vet"
 	@echo "  build       - Build the TUI binary"
 	@echo "  build-cli   - Build the CLI binary"
-	@echo "  build-mcp   - Build the MCP server binary"
 	@echo "  run         - Build and run TUI"
 	@echo "  test        - Run tests"
 	@echo "  ci          - Run CI checks locally"
 	@echo "  clean       - Remove build artifacts"
 	@echo "  install     - Install TUI to ~/.local/bin"
 	@echo "  install-cli - Install CLI to ~/.local/bin"
-	@echo "  install-mcp - Install MCP server to ~/.local/bin"

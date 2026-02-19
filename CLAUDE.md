@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Libraio manages Obsidian vaults organized with the Johnny Decimal system. Three binaries: `libraio` (TUI), `libraio-cli` (CLI), `libraio-mcp` (MCP server for AI tool integration).
+Libraio manages Obsidian vaults organized with the Johnny Decimal system. Two binaries: `libraio` (TUI), `libraio-cli` (CLI).
 
 Hexagonal architecture: domain defines ports, adapters implement them. Organized by domain, not technical layer.
 
@@ -40,26 +40,9 @@ Reserved ID slots at every level:
 - **Category → Area archive**: preserves ID and all items
 - **Area → Scope archive**: preserves full structure
 
-### JDex Entry Format
+### JDex Entries
 
-Every item folder contains a JDex file named after the folder:
-
-```yaml
----
-aliases:
-  - S01.21.11 CSharp
-location: Obsidian
-tags:
-  - jdex
-  - index
----
-
-# S01.21.11 CSharp
-
-Brief description.
-```
-
-`location` values: `Obsidian`, `Notion - [workspace]`, `Google Drive`, `Email`
+JDex entries live in the **BagOfHoldingIndexDB** Notion database — not as files in the vault. The vault only holds actual content. Existing JDex files in the vault are read-only (used for display in the TUI but no longer created or updated).
 
 ### File Naming
 
@@ -68,7 +51,7 @@ Brief description.
 
 ## Configuration
 
-All three binaries share vault path config via `internal/config`:
+Both binaries share vault path config via `internal/config`:
 1. `LIBRAIO_VAULT` env var (highest priority)
-2. `--vault` flag (CLI and MCP only)
+2. `--vault` flag (CLI only)
 3. Default: `~/Documents/bag_of_holding`

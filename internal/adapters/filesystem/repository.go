@@ -67,43 +67,6 @@ func listEntities[T domain.IDGetter](
 	return entities, nil
 }
 
-// updateJDexFile finds and updates a JDex file (or legacy README.md) in the given directory.
-// It looks for the old JDex file or README.md, applies the transform function, writes to newJDexPath,
-// and removes the old file if different from the new path.
-// Returns nil if no JDex file exists (not an error condition).
-func updateJDexFile(dstPath, oldFolderName, newJDexPath string, transform func(string) string) error {
-	oldJDexPath := filepath.Join(dstPath, domain.JDexFileName(oldFolderName))
-	legacyReadmePath := filepath.Join(dstPath, "README.md")
-
-	var sourcePath string
-	if _, err := os.Stat(oldJDexPath); err == nil {
-		sourcePath = oldJDexPath
-	} else if _, err := os.Stat(legacyReadmePath); err == nil {
-		sourcePath = legacyReadmePath
-	}
-
-	if sourcePath == "" {
-		return nil // No JDex file to update
-	}
-
-	content, err := os.ReadFile(sourcePath)
-	if err != nil {
-		return fmt.Errorf("failed to read JDex file %s: %w", sourcePath, err)
-	}
-
-	updated := transform(string(content))
-	if err := os.WriteFile(newJDexPath, []byte(updated), 0644); err != nil {
-		return fmt.Errorf("failed to write JDex file %s: %w", newJDexPath, err)
-	}
-
-	if sourcePath != newJDexPath {
-		if err := os.Remove(sourcePath); err != nil {
-			return fmt.Errorf("failed to remove old JDex file %s: %w", sourcePath, err)
-		}
-	}
-	return nil
-}
-
 // nextAvailableID is a generic helper that:
 // 1. Lists existing entities using the lister function
 // 2. Extracts IDs from those entities
@@ -250,7 +213,6 @@ func (r *Repository) ListItems(categoryID string) ([]domain.Item, error) {
 				Name:       matches[2],
 				Path:       fullPath,
 				CategoryID: categoryID,
-				JDexPath:   filepath.Join(fullPath, domain.JDexFileName(entryName)),
 			}
 		},
 	)
@@ -349,13 +311,6 @@ func (r *Repository) CreateStandardZeros(categoryID, categoryPath string) error 
 		if err := os.MkdirAll(itemPath, 0755); err != nil {
 			return fmt.Errorf("failed to create %s: %w", itemName, err)
 		}
-
-		jdexPath := filepath.Join(itemPath, domain.JDexFileName(folderName))
-		jdexContent := domain.StandardZeroReadmeTemplate(itemID, itemName, sz.Purpose)
-
-		if err := os.WriteFile(jdexPath, []byte(jdexContent), 0644); err != nil {
-			return fmt.Errorf("failed to create JDex for %s: %w", itemName, err)
-		}
 	}
 	return nil
 }
@@ -379,20 +334,11 @@ func (r *Repository) CreateItem(categoryID, description string) (*domain.Item, e
 		return nil, fmt.Errorf("failed to create item: %w", err)
 	}
 
-	// Create JDex file
-	jdexPath := filepath.Join(itemPath, domain.JDexFileName(folderName))
-	jdexContent := domain.ReadmeTemplate(newID, description)
-
-	if err := os.WriteFile(jdexPath, []byte(jdexContent), 0644); err != nil {
-		return nil, fmt.Errorf("failed to create JDex: %w", err)
-	}
-
 	return &domain.Item{
 		ID:         newID,
 		Name:       description,
 		Path:       itemPath,
 		CategoryID: categoryID,
-		JDexPath:   jdexPath,
 	}, nil
 }
 
@@ -441,13 +387,6 @@ func (r *Repository) MoveItem(srcItemID, dstCategoryID string) (*domain.Item, er
 		return nil, fmt.Errorf("failed to move item: %w", err)
 	}
 
-	// Update JDex file (best-effort, non-critical)
-	oldFolderName := filepath.Base(srcPath)
-	newJDexPath := filepath.Join(dstPath, domain.JDexFileName(newFolderName))
-	_ = updateJDexFile(dstPath, oldFolderName, newJDexPath, func(content string) string {
-		return domain.UpdateReadmeID(content, srcItemID, newID, description)
-	})
-
 	// Update Obsidian links throughout the vault
 	r.updateObsidianLinksWithCache(srcItemID, newID, description)
 
@@ -456,7 +395,6 @@ func (r *Repository) MoveItem(srcItemID, dstCategoryID string) (*domain.Item, er
 		Name:       description,
 		Path:       dstPath,
 		CategoryID: dstCategoryID,
-		JDexPath:   newJDexPath,
 	}, nil
 }
 
@@ -558,13 +496,6 @@ func (r *Repository) updateItemIDsInCategory(categoryPath, _, newCategoryID stri
 			continue
 		}
 
-		// Update JDex file (best-effort, non-critical)
-		oldFolderName := entry.Name()
-		newJDexPath := filepath.Join(newPath, domain.JDexFileName(newFolderName))
-		_ = updateJDexFile(newPath, oldFolderName, newJDexPath, func(content string) string {
-			return domain.UpdateReadmeID(content, oldItemID, newItemID, description)
-		})
-
 		// Update Obsidian links for this item
 		r.updateObsidianLinksWithCache(oldItemID, newItemID, description)
 	}
@@ -600,7 +531,6 @@ func (r *Repository) ArchiveItem(srcItemID string) (*domain.Item, error) {
 		return nil, fmt.Errorf("source item not found: %w", err)
 	}
 	description := domain.ExtractDescription(filepath.Base(srcPath))
-	folderName := filepath.Base(srcPath)
 
 	// Get archive item path
 	archivePath, err := r.findItemPath(archiveItemID)
@@ -615,12 +545,6 @@ func (r *Repository) ArchiveItem(srcItemID string) (*domain.Item, error) {
 		return nil, fmt.Errorf("failed to move item to archive: %w", err)
 	}
 
-	// Update JDex file (rename from "S01.11.15 Theatre.md" to "[Archived] Theatre.md", best-effort)
-	newJDexPath := filepath.Join(dstPath, archivedFolderName+".md")
-	_ = updateJDexFile(dstPath, folderName, newJDexPath, func(content string) string {
-		return domain.UpdateReadmeForArchive(content, srcItemID, description)
-	})
-
 	// Update Obsidian links throughout the vault
 	r.updateObsidianLinksForArchive(srcItemID, description)
 
@@ -630,7 +554,6 @@ func (r *Repository) ArchiveItem(srcItemID string) (*domain.Item, error) {
 		Name:       description,
 		Path:       dstPath,
 		CategoryID: srcCategoryID,
-		JDexPath:   newJDexPath,
 	}, nil
 }
 
@@ -899,18 +822,6 @@ func (r *Repository) UnarchiveItems(archiveItemID, dstCategoryID string) ([]*dom
 			continue
 		}
 
-		// Update/create JDex file
-		newJDexPath := filepath.Join(dstPath, domain.JDexFileName(newFolderName))
-		archivedJDexName := entry.Name() + ".md"
-		_ = updateJDexFile(dstPath, entry.Name(), newJDexPath, func(content string) string {
-			return domain.UpdateReadmeForUnarchive(content, newID, description)
-		})
-		// Also try removing the old archived jdex if it still exists
-		oldJDexPath := filepath.Join(dstPath, archivedJDexName)
-		if oldJDexPath != newJDexPath {
-			_ = os.Remove(oldJDexPath)
-		}
-
 		// Update Obsidian links: [[Archived] Theatre]] -> [[S01.11.15 Theatre]]
 		r.updateObsidianLinksForUnarchive(description, newID)
 
@@ -919,7 +830,6 @@ func (r *Repository) UnarchiveItems(archiveItemID, dstCategoryID string) ([]*dom
 			Name:       description,
 			Path:       dstPath,
 			CategoryID: dstCategoryID,
-			JDexPath:   newJDexPath,
 		})
 	}
 
@@ -958,14 +868,8 @@ func (r *Repository) RenameItem(itemID, newDescription string) (*domain.Item, er
 		return nil, fmt.Errorf("failed to rename item: %w", err)
 	}
 
-	// Update JDex file
-	newJDexPath := filepath.Join(dstPath, domain.JDexFileName(newFolderName))
-	oldDescription := domain.ExtractDescription(oldFolderName)
-	_ = updateJDexFile(dstPath, oldFolderName, newJDexPath, func(content string) string {
-		return domain.UpdateReadmeID(content, itemID, itemID, newDescription)
-	})
-
 	// Update Obsidian links
+	oldDescription := domain.ExtractDescription(oldFolderName)
 	r.updateObsidianLinksForRename(itemID, oldDescription, newDescription)
 
 	categoryID, _ := domain.ParseCategory(itemID)
@@ -974,7 +878,6 @@ func (r *Repository) RenameItem(itemID, newDescription string) (*domain.Item, er
 		Name:       newDescription,
 		Path:       dstPath,
 		CategoryID: categoryID,
-		JDexPath:   newJDexPath,
 	}, nil
 }
 

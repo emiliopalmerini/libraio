@@ -64,28 +64,6 @@ func TestCreateCategory_CreatesStandardZeros(t *testing.T) {
 			t.Errorf("standard zero %s not created at %s", itemName, itemPath)
 		}
 
-		// JDex file is now named after the folder
-		jdexPath := filepath.Join(itemPath, domain.JDexFileName(folderName))
-		if _, err := os.Stat(jdexPath); os.IsNotExist(err) {
-			t.Errorf("JDex file not created for %s", itemName)
-		}
-
-		content, err := os.ReadFile(jdexPath)
-		if err != nil {
-			t.Errorf("failed to read JDex for %s: %v", itemName, err)
-			continue
-		}
-
-		// Verify JDex contains the purpose
-		if !strings.Contains(string(content), sz.Purpose) {
-			t.Errorf("JDex for %s does not contain purpose text", itemName)
-		}
-
-		// Verify standard-zero tag
-		if !strings.Contains(string(content), "standard-zero") {
-			t.Errorf("JDex for %s does not contain standard-zero tag", itemName)
-		}
-
 		// Verify naming format includes "for S01.11"
 		if !strings.Contains(folderName, "for S01.11") {
 			t.Errorf("expected folder name to contain 'for S01.11', got %s", folderName)
@@ -130,40 +108,6 @@ func TestCreateCategory_AreaManagementNaming(t *testing.T) {
 		if _, err := os.Stat(itemPath); os.IsNotExist(err) {
 			t.Errorf("standard zero not created with expected naming at %s", itemPath)
 		}
-	}
-}
-
-func TestCreateCategory_RollbackOnFailure(t *testing.T) {
-	vaultPath, cleanup := setupTestVault(t)
-	defer cleanup()
-
-	areaPath := filepath.Join(vaultPath, "S01 Test", "S01.10-19 TestArea")
-
-	// Create a category folder manually (simulating what CreateCategory does)
-	categoryPath := filepath.Join(areaPath, "S01.11 TestRollback")
-	if err := os.MkdirAll(categoryPath, 0755); err != nil {
-		t.Fatalf("failed to create category folder: %v", err)
-	}
-
-	// Create a FILE where a standard zero DIRECTORY should be
-	// This will cause CreateStandardZeros to fail
-	// Use the new naming format: "JDex for S01.11"
-	conflictPath := filepath.Join(categoryPath, "S01.11.00 JDex for S01.11")
-	if err := os.WriteFile(conflictPath, []byte("conflict"), 0644); err != nil {
-		t.Fatalf("failed to create conflict file: %v", err)
-	}
-
-	repo := NewRepository(vaultPath)
-
-	// Test CreateStandardZeros directly - it should fail because JDex path is a file
-	err := repo.CreateStandardZeros("S01.11", categoryPath)
-
-	if err == nil {
-		t.Fatal("expected CreateStandardZeros to fail, but it succeeded")
-	}
-
-	if !strings.Contains(err.Error(), "JDex") {
-		t.Errorf("expected error to mention JDex, got: %v", err)
 	}
 }
 
@@ -638,40 +582,6 @@ func TestArchiveItem_MovesToArchiveFolder(t *testing.T) {
 	originalPath := filepath.Join(vaultPath, "S01 Personal", "S01.10-19 Lifestyle", "S01.11 Entertainment", "S01.11.15 Theatre")
 	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
 		t.Error("expected original item location to be gone, but it still exists")
-	}
-}
-
-func TestArchiveItem_UpdatesJDexContent(t *testing.T) {
-	vaultPath, cleanup := setupArchiveTestVault(t)
-	defer cleanup()
-
-	repo := NewRepository(vaultPath)
-
-	archivedItem, err := repo.ArchiveItem("S01.11.15")
-	if err != nil {
-		t.Fatalf("ArchiveItem failed: %v", err)
-	}
-
-	// Verify JDex file was renamed to "[Archived] Theatre.md"
-	expectedJDexPath := filepath.Join(archivedItem.Path, "[Archived] Theatre.md")
-	if archivedItem.JDexPath != expectedJDexPath {
-		t.Errorf("expected JDex path %s, got %s", expectedJDexPath, archivedItem.JDexPath)
-	}
-
-	// Read the JDex file
-	content, err := os.ReadFile(archivedItem.JDexPath)
-	if err != nil {
-		t.Fatalf("failed to read JDex: %v", err)
-	}
-
-	// Verify ID was removed from content
-	if strings.Contains(string(content), "S01.11.15") {
-		t.Error("JDex should NOT contain original ID S01.11.15 after archiving")
-	}
-
-	// Verify description is still present
-	if !strings.Contains(string(content), "Theatre") {
-		t.Error("JDex should still contain Theatre description")
 	}
 }
 

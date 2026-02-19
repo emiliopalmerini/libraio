@@ -39,7 +39,6 @@ type Item struct {
 	Description string
 	Path        string
 	CategoryID  string
-	JDexPath    string // Path to the JDex file (e.g., "S01.11.11 Theatre/S01.11.11 Theatre.md")
 }
 
 // SearchResult represents a search match

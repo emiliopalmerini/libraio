@@ -1164,16 +1164,6 @@ func (r *Repository) GetPath(id string) (string, error) {
 	}
 }
 
-// GetJDexPath returns the JDex file path for an item
-func (r *Repository) GetJDexPath(itemID string) (string, error) {
-	itemPath, err := r.findItemPath(itemID)
-	if err != nil {
-		return "", err
-	}
-	folderName := filepath.Base(itemPath)
-	return filepath.Join(itemPath, domain.JDexFileName(folderName)), nil
-}
-
 // Helper methods for finding paths
 
 // findPathInDir looks for a directory in parentPath that starts with "id "

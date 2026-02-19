@@ -235,7 +235,7 @@ type CreateResult struct {
 	ID         string // The ID of the created entity
 	Name       string // The name of the created entity
 	Message    string // Human-readable success message
-	JDexPath   string // Path to JDex file (only for items)
+	Path       string // Path to the created entity's folder (only for items)
 	EntityType string // Type of entity created (scope, area, category, item)
 }
 
@@ -308,7 +308,7 @@ func (f *CreateCommandFactory) Execute(ctx context.Context, parentID, descriptio
 			ID:         result.Item.ID,
 			Name:       result.Item.Name,
 			Message:    result.Message,
-			JDexPath:   result.Item.JDexPath,
+			Path:       result.Item.Path,
 			EntityType: "item",
 		}, nil
 

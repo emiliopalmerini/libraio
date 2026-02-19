@@ -348,20 +348,9 @@ func (m *BrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, BrowserKeys.Yank):
 			if node := m.selectedNode(); node != nil {
-				var pathToYank string
-				var err error
+				pathToYank := node.Path
 
-				switch node.Type {
-				case application.IDTypeFile:
-					pathToYank = node.Path
-				case application.IDTypeItem:
-					pathToYank, err = m.repo.GetJDexPath(node.ID)
-				default:
-					// For scopes, areas, categories: use directory path
-					pathToYank = node.Path
-				}
-
-				if err == nil && pathToYank != "" {
+				if pathToYank != "" {
 					relPath, err := filepath.Rel(m.repo.VaultPath(), pathToYank)
 					if err == nil {
 						clipboard.WriteAll(relPath)
@@ -604,20 +593,9 @@ func (m *BrowserModel) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle 'y' for yank in search mode
 	if msg.String() == "y" && len(m.searchMatches) > 0 {
 		result := m.searchMatches[m.searchIndex]
-		var pathToYank string
-		var err error
+		pathToYank := result.Path
 
-		switch result.Type {
-		case application.IDTypeFile:
-			pathToYank = result.Path
-		case application.IDTypeItem:
-			pathToYank, err = m.repo.GetJDexPath(result.ID)
-		default:
-			// For scopes, areas, categories: use directory path
-			pathToYank = result.Path
-		}
-
-		if err == nil && pathToYank != "" {
+		if pathToYank != "" {
 			relPath, err := filepath.Rel(m.repo.VaultPath(), pathToYank)
 			if err == nil {
 				clipboard.WriteAll(relPath)

@@ -339,10 +339,6 @@ func (m *mockVaultRepository) GetPath(id string) (string, error) {
 	return "", nil
 }
 
-func (m *mockVaultRepository) GetJDexPath(itemID string) (string, error) {
-	return "", nil
-}
-
 func (m *mockVaultRepository) ListItems(categoryID string) ([]domain.Item, error) {
 	return m.items[categoryID], nil
 }

@@ -11,7 +11,6 @@ type TreeReader interface {
 // PathResolver provides path resolution for vault entities
 type PathResolver interface {
 	GetPath(id string) (string, error)
-	GetJDexPath(itemID string) (string, error)
 	VaultPath() string
 }
 

@@ -207,7 +207,7 @@ func (m *CreateModel) create() tea.Cmd {
 			}
 			if m.openInEditor {
 				return OpenEditorMsg{
-					Path:    result.Item.JDexPath,
+					Path:    result.Item.Path,
 					Message: result.Message,
 				}
 			}
@@ -256,7 +256,7 @@ func (m *CreateModel) View() string {
 		parentLabel = "Parent (Area ID):"
 	case CreateModeItem:
 		title = "Create New Item"
-		subtitle = "Creating item in category. A JDex file will be generated."
+		subtitle = "Creating item in category."
 		parentLabel = "Parent (Category ID):"
 	}
 
